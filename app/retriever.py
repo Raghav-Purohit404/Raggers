@@ -10,3 +10,4 @@ git config --global user.email "raghavpurohit71@gmail.com"
 git add .
 git commit -m "Edition 1.0"
 git push origin main
+git push -u Raggers main

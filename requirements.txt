@@ -1,6 +1,22 @@
+# Language Modeling & Orchestration
 langchain
 sentence-transformers
 faiss-cpu
-fastapi
-streamlit
 pymupdf
+
+# Web scraping & parsing
+beautifulsoup4
+requests
+
+# UI / API Frameworks
+streamlit
+fastapi
+uvicorn
+
+# Logging & utilities
+tqdm
+python-dotenv
+
+# Optional: For file system handling/logging DB
+pandas
+streamlit
