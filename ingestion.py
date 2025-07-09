@@ -1,12 +1,16 @@
 import os
 from typing import List, Optional
 from langchain.vectorstores import FAISS
-from langchain.document_loaders import (
+from langchain_community.document_loaders import (
     PyPDFLoader,
     UnstructuredURLLoader,
     UnstructuredFileLoader
 )
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.document_loaders import UnstructuredURLLoader
+from langchain_community.document_loaders import UnstructuredURLLoader
+
+
 
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
 

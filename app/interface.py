@@ -22,8 +22,26 @@ from rag_pipeline import run_pipeline  # fallback LLM pipeline
 # Define paths
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
-INDEX_PATH = os.path.join(BASE_DIR, "faiss_index")
+INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
 LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
+
+
+# ─────────────────────────────────────────────────────────────
+# ✅ Attempt to auto-load FAISS index on page load
+# ─────────────────────────────────────────────────────────────
+if "vectorstore_ready" not in st.session_state:
+    if os.path.exists(INDEX_PATH):
+        try:
+            db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+            st.session_state["vectorstore_ready"] = True
+            st.success("✅ FAISS index auto-loaded.")
+        except Exception as e:
+            st.warning(f"⚠️ Error loading FAISS index: {e}")
+            st.session_state["vectorstore_ready"] = False
+    else:
+        st.session_state["vectorstore_ready"] = False
+
+
 
 # Ensure logging directory and file exist
 os.makedirs(LOG_DIR, exist_ok=True)
@@ -117,6 +135,8 @@ if process:
     else:
         if os.path.exists(INDEX_PATH):
             db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+           
+
             st.success("✅ Loaded existing FAISS index.")
             st.session_state["vectorstore_ready"] = True
         else:
