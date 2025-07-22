@@ -2,63 +2,61 @@ import os
 import time
 import hashlib
 import pickle
-import logging
 from pathlib import Path
-from typing import List, Set, Dict
+from typing import List
 from langchain.schema import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFileLoader
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 from bs4 import BeautifulSoup
 import requests
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Setup logging
+import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Paths
 HASH_STORE_PATH = "indexed_hashes.pkl"
-INDEX_PATH = "combined_faiss_index"
-EMBEDDER = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
 
 # Load or initialize hash memory
 if os.path.exists(HASH_STORE_PATH):
     with open(HASH_STORE_PATH, "rb") as f:
-        indexed_hashes: Set[str] = pickle.load(f)
+        indexed_hashes = pickle.load(f)
 else:
-    indexed_hashes: Set[str] = set()
+    indexed_hashes = set()
 
-# ─────────────────────────────────────────────────────────────
-# Utility Functions
-# ─────────────────────────────────────────────────────────────
+# ✨ Utility: hash content for deduplication
 def hash_content(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
 
-# ─────────────────────────────────────────────────────────────
-# Document Loaders
-# ─────────────────────────────────────────────────────────────
-def load_new_pdfs(folder: Path, processed: Set[str]) -> List[Document]:
+# 📁 Load new files (PDF, TXT, DOCX, etc.)
+def load_new_files(folder: Path, processed: set) -> List[Document]:
     docs = []
-    for file in folder.glob("*.pdf"):
-        if file.name not in processed:
+    for file in folder.glob("*"):
+        ext = file.suffix.lower()
+        if ext in SUPPORTED_EXTENSIONS and file.name not in processed:
             try:
-                loader = PyMuPDFLoader(str(file))
+                if ext == ".pdf":
+                    loader = PyMuPDFLoader(str(file))
+                else:
+                    loader = UnstructuredFileLoader(str(file))
                 pages = loader.load()
+
                 for i, doc in enumerate(pages):
-                    doc.metadata.update({
-                        "source": file.name,
-                        "page": i + 1,
-                        "ingested_by": "backend"
-                    })
+                    doc.metadata["source"] = file.name
+                    doc.metadata["page"] = i + 1
+                    doc.metadata["ingested_by"] = "backend"
                 docs.extend(pages)
                 processed.add(file.name)
                 logger.info(f"📄 Loaded {len(pages)} pages from {file.name}")
             except Exception as e:
-                logger.error(f"❌ Error loading PDF {file.name}: {e}")
+                logger.error(f"❌ Failed to load {file.name}: {e}")
     return docs
 
-def load_web(urls: List[str], url_cache: Dict[str, str]) -> List[Document]:
+# 🌐 Scrape web pages
+def load_web(urls: List[str], url_cache: dict) -> List[Document]:
     docs = []
     for url in urls:
         try:
@@ -68,16 +66,10 @@ def load_web(urls: List[str], url_cache: Dict[str, str]) -> List[Document]:
                 tag.decompose()
             text = soup.get_text(separator="\n")
             cleaned = "\n".join([line.strip() for line in text.splitlines() if line.strip()])
-
-            if len(cleaned) < 100:
-                logger.warning(f"⚠️ Content from {url} too short, skipping.")
-                continue
-
             hash_val = hash_content(cleaned)
             if url_cache.get(url) == hash_val:
                 logger.info(f"🔄 No change in {url}, skipping...")
                 continue
-
             url_cache[url] = hash_val
             doc = Document(page_content=cleaned, metadata={"source": url, "ingested_by": "backend"})
             docs.append(doc)
@@ -85,9 +77,7 @@ def load_web(urls: List[str], url_cache: Dict[str, str]) -> List[Document]:
             logger.error(f"❌ Failed to scrape {url}: {e}")
     return docs
 
-# ─────────────────────────────────────────────────────────────
-# Processing Utilities
-# ─────────────────────────────────────────────────────────────
+# ✂️ Chunking
 def chunk_documents(docs: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     chunks = splitter.split_documents(docs)
@@ -95,6 +85,7 @@ def chunk_documents(docs: List[Document]) -> List[Document]:
         chunk.metadata["chunk_index"] = i
     return chunks
 
+# 🚫 Deduplication
 def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
     global indexed_hashes
     unique = []
@@ -106,29 +97,29 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
             unique.append(chunk)
     return unique
 
-def update_index(chunks: List[Document], index_path: str = INDEX_PATH):
+# 🔖 Embedding & saving to FAISS
+def update_index(chunks: List[Document], index_path="combined_faiss_index"):
+    embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
     if Path(index_path).exists():
-        index = FAISS.load_local(index_path, EMBEDDER, allow_dangerous_deserialization=True)
+        index = FAISS.load_local(index_path, embedder, allow_dangerous_deserialization=True)
         index.add_documents(chunks)
     else:
-        index = FAISS.from_documents(chunks, EMBEDDER)
+        index = FAISS.from_documents(chunks, embedder)
     index.save_local(index_path)
     logger.info(f"✅ Index updated and saved to '{index_path}'")
     with open(HASH_STORE_PATH, "wb") as f:
         pickle.dump(indexed_hashes, f)
 
-# ─────────────────────────────────────────────────────────────
-# Main Entry Point
-# ─────────────────────────────────────────────────────────────
-def run_background_ingestion(pdf_dir: str, urls: List[str], index_path: str = INDEX_PATH):
+# 🧠 Entry point for backend ingestion
+def run_background_ingestion(pdf_dir: str, urls: List[str], index_path="combined_faiss_index"):
     pdf_dir = Path(pdf_dir)
-    processed_pdfs = set()
+    processed_files = set()
     url_cache = {}
 
-    new_pdfs = load_new_pdfs(pdf_dir, processed_pdfs)
+    new_file_docs = load_new_files(pdf_dir, processed_files)
     new_web_docs = load_web(urls, url_cache)
 
-    all_docs = new_pdfs + new_web_docs
+    all_docs = new_file_docs + new_web_docs
     if not all_docs:
         logger.info("🚤 No new documents to process.")
         return
