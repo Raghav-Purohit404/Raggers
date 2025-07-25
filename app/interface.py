@@ -6,6 +6,9 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
+# ✅ Set Streamlit page config FIRST
+st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
+
 # ─────────────────────────────────────────────────────────────
 #  PATH & IMPORT SETUP
 # ─────────────────────────────────────────────────────────────
@@ -13,7 +16,12 @@ from datetime import datetime
 # Add root repo to sys.path for module imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from ingestion import load_documents_from_files, load_documents_from_urls, get_vectorstore
+from ingestion import (
+    load_documents_from_files,
+    load_documents_from_urls,
+    get_vectorstore,
+    sync_to_backend_faiss  # 🔁 Incremental FAISS sync
+)
 from logger import log_query
 from llm_wrapper import llm
 from langchain.chains import RetrievalQA
@@ -24,7 +32,6 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
 LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
-
 
 # ─────────────────────────────────────────────────────────────
 # ✅ Attempt to auto-load FAISS index on page load
@@ -41,8 +48,6 @@ if "vectorstore_ready" not in st.session_state:
     else:
         st.session_state["vectorstore_ready"] = False
 
-
-
 # Ensure logging directory and file exist
 os.makedirs(LOG_DIR, exist_ok=True)
 if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
@@ -51,7 +56,6 @@ if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
 # ─────────────────────────────────────────────────────────────
 # PAGE LAYOUT
 # ─────────────────────────────────────────────────────────────
-st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
 st.title("📚 PhiRAG: Chat with Files + Web + LLM")
 
 # ─────────────────────────────────────────────────────────────
@@ -67,9 +71,12 @@ uploaded_files = st.file_uploader(
 folder_path = st.text_input("📁 Or enter a local folder path:")
 url_input = st.text_area("🌐 Paste Web URLs (one per line):")
 rebuild = st.checkbox("🔄 Force rebuild FAISS index")
+
+if "frontend_docs" not in st.session_state:
+    st.session_state["frontend_docs"] = []
+
 process = st.button("📥 Ingest Files and Links")
 
-# Save uploaded files to temp folder
 @st.cache_data(show_spinner=False)
 def save_uploaded_files(uploaded_files):
     temp_dir = tempfile.mkdtemp()
@@ -81,7 +88,6 @@ def save_uploaded_files(uploaded_files):
         paths.append(path)
     return paths
 
-# Preview uploaded file summary
 @st.cache_data(show_spinner=False)
 def summarize_file(path):
     try:
@@ -104,7 +110,6 @@ def summarize_file(path):
     except Exception as e:
         return f"Error: {e}"
 
-# Process ingestion
 if process:
     file_paths = []
 
@@ -124,6 +129,7 @@ if process:
         st.text(summarize_file(f))
 
     documents = load_documents_from_files(file_paths) + load_documents_from_urls(urls)
+    st.session_state["frontend_docs"] = documents  # 💾 Save for syncing later
 
     if rebuild:
         if not documents:
@@ -135,8 +141,6 @@ if process:
     else:
         if os.path.exists(INDEX_PATH):
             db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
-           
-
             st.success("✅ Loaded existing FAISS index.")
             st.session_state["vectorstore_ready"] = True
         else:
@@ -144,7 +148,7 @@ if process:
             st.session_state["vectorstore_ready"] = False
 
 # ─────────────────────────────────────────────────────────────
-#  QUERY SECTION (RAG + LLM Fallback)
+#  QUERY SECTION
 # ─────────────────────────────────────────────────────────────
 
 query = st.text_input("💬 Ask a question:")
@@ -152,7 +156,6 @@ run_query = st.button("🔍 Run Query")
 
 if run_query and query:
     if os.path.exists(INDEX_PATH) and st.session_state.get("vectorstore_ready", False):
-        # Use RAG mode
         db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
         qa = RetrievalQA.from_chain_type(
             llm=llm,
@@ -171,8 +174,12 @@ if run_query and query:
 
         log_query(query, response["result"])
 
+        # 🔁 Sync newly ingested frontend documents into backend FAISS
+        if st.session_state.get("frontend_docs"):
+            sync_to_backend_faiss(st.session_state["frontend_docs"], backend_path="faiss_backend")
+            st.session_state["frontend_docs"] = []
+
     else:
-        # Fallback to LLM mode
         st.warning("⚠️ No FAISS index found. Using LLM-only mode.")
         try:
             result = run_pipeline(prompt=query)
@@ -183,7 +190,7 @@ if run_query and query:
             st.error(f"Error: {e}")
 
 # ─────────────────────────────────────────────────────────────
-# LOGGING UI: VIEW, FILTER, FEEDBACK, DOWNLOAD
+# LOGGING UI
 # ─────────────────────────────────────────────────────────────
 
 df_logs = pd.read_csv(LOG_PATH)
@@ -210,11 +217,9 @@ data_to_download = df_logs.copy()
 
 if mode == "Download latest log":
     data_to_download = df_logs.tail(1)
-
 elif mode == "Download last N logs":
     n = st.number_input("Enter number of recent logs:", min_value=1, max_value=len(df_logs), step=1)
     data_to_download = df_logs.tail(n)
-
 elif mode == "Download logs by date range":
     min_date = df_logs["Timestamp"].min().date()
     max_date = df_logs["Timestamp"].max().date()

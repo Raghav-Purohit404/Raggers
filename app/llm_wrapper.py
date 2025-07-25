@@ -1,21 +1,24 @@
 # llm_wrapper.py
+# llm_wrapper.py
 
-from langchain_ollama import OllamaLLM
+from langchain_community.chat_models import ChatOllama
+from langchain_core.messages import HumanMessage
 
-# Initialize the Phi-3 model via Ollama
-llm = OllamaLLM(model="phi3:3.8b")
+# Use ChatOllama for proper chat formatting
+llm = ChatOllama(model="phi3:3.8b")
 
 def get_llm_response(prompt: str) -> str:
     """
-    Generate a response from the Ollama LLM given a prompt.
+    Generate a response from Phi-3 via Ollama with chat-formatting.
 
     Args:
-        prompt (str): The input prompt/question for the LLM.
+        prompt (str): User prompt or question.
 
     Returns:
-        str: The model's response.
+        str: AI response.
     """
     try:
-        return llm(prompt)
+        response = llm.invoke([HumanMessage(content=prompt)])
+        return response.content
     except Exception as e:
         return f"⚠️ Error generating response: {e}"

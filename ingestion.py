@@ -1,3 +1,4 @@
+import torch
 import os
 from typing import List, Optional
 
@@ -8,6 +9,7 @@ from langchain_community.document_loaders import (
     UnstructuredFileLoader,
     UnstructuredURLLoader
 )
+from langchain_core.documents import Document
 
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
 
@@ -39,14 +41,15 @@ def load_documents_from_urls(urls: List[str]):
         return []
 
 def get_vectorstore(
-    documents: List = [],
+    documents: List[Document] = [],
     rebuild: bool = False,
     save_path: Optional[str] = "faiss_index",
     load_path: Optional[str] = "faiss_index"
 ):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     embedder = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"}
+        model_kwargs={"device": device}
     )
 
     # Rebuild from documents
@@ -66,6 +69,32 @@ def get_vectorstore(
         return db
 
     raise ValueError("No saved FAISS index found and no documents provided to rebuild.")
+
+def sync_to_backend_faiss(new_docs: List[Document], backend_path: str = "faiss_backend"):
+    """
+    Adds new_docs to backend FAISS index if they are not already present.
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    embedder = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": device}
+    )
+
+    if os.path.exists(backend_path):
+        db_backend = FAISS.load_local(backend_path, embedder, allow_dangerous_deserialization=True)
+    else:
+        db_backend = FAISS.from_documents([], embedder)
+
+    # Check for duplicates by page_content
+    existing_texts = {doc.page_content for doc in db_backend.similarity_search("", k=1000)}
+    unique_new_docs = [doc for doc in new_docs if doc.page_content not in existing_texts]
+
+    if unique_new_docs:
+        db_backend.add_documents(unique_new_docs)
+        db_backend.save_local(backend_path)
+        print(f"✅ Synced {len(unique_new_docs)} docs to backend FAISS index at '{backend_path}'")
+    else:
+        print("ℹ️ No new documents to sync to backend.")
 
 # Optional CLI usage
 if __name__ == "__main__":
