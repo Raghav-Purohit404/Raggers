@@ -23,8 +23,7 @@ from ingestion import (
     sync_to_backend_faiss  # 🔁 Incremental FAISS sync
 )
 from logger import log_query
-from llm_wrapper import llm
-from langchain.chains import RetrievalQA
+from llm_wrapper import get_llm_response  # ⬅️ use get_llm_response from wrapper
 from rag_pipeline import run_pipeline  # fallback LLM pipeline
 
 # Define paths
@@ -152,29 +151,52 @@ if process:
 # ─────────────────────────────────────────────────────────────
 
 query = st.text_input("💬 Ask a question:")
+
+# OPTIONAL: Query size selection
+st.markdown("### 🧠 (Optional) Choose answer depth:")
+col1, col2, col3, col4 = st.columns(4)
+answer_type = None
+
+if col1.button("Summary (100 words)"):
+    answer_type = "summary"
+elif col2.button("Overview (200 words)"):
+    answer_type = "overview"
+elif col3.button("Detailed (400 words)"):
+    answer_type = "detailed"
+elif col4.button("Deep Dive (600+ words)"):
+    answer_type = "deep_dive"
+
+def get_word_limit(answer_type):
+    return {
+        "summary": 100,
+        "overview": 200,
+        "detailed": 400,
+        "deep_dive": 600
+    }.get(answer_type, 150)
+
 run_query = st.button("🔍 Run Query")
 
 if run_query and query:
     if os.path.exists(INDEX_PATH) and st.session_state.get("vectorstore_ready", False):
         db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
-        qa = RetrievalQA.from_chain_type(
-            llm=llm,
-            retriever=db.as_retriever(search_kwargs={"k": 5}),
-            return_source_documents=True
-        )
-        response = qa.invoke(query)
+        retriever = db.as_retriever(search_kwargs={"k": 5})
+        docs = retriever.get_relevant_documents(query)
+        context = "\n\n".join(doc.page_content for doc in docs[:5])
+
+        word_limit = get_word_limit(answer_type)
+        prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nStrictly answer in exactly {word_limit} words. Count your words."
+        answer = get_llm_response(prompt, word_limit)
 
         st.subheader("💬 Answer")
-        st.write(response["result"])
+        st.write(answer)
 
         st.subheader("📌 Source Snippets")
-        for i, doc in enumerate(response["source_documents"], start=1):
+        for i, doc in enumerate(docs, start=1):
             st.markdown(f"**Document {i}: {os.path.basename(doc.metadata.get('source', 'Unknown'))}**")
             st.write(doc.page_content[:500] + "...")
 
-        log_query(query, response["result"])
+        log_query(query, answer)
 
-        # 🔁 Sync newly ingested frontend documents into backend FAISS
         if st.session_state.get("frontend_docs"):
             sync_to_backend_faiss(st.session_state["frontend_docs"], backend_path="faiss_backend")
             st.session_state["frontend_docs"] = []

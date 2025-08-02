@@ -6,5 +6,7 @@ def chunk_documents(docs, chunk_size=500, chunk_overlap=50):
 
     for i, chunk in enumerate(chunks):
         chunk.metadata["chunk_index"] = i
+        chunk.metadata["rag_snippet"] = chunk.page_content  # ✅ Needed for displaying best match
 
     return chunks
+

@@ -83,6 +83,7 @@ def chunk_documents(docs: List[Document]) -> List[Document]:
     chunks = splitter.split_documents(docs)
     for i, chunk in enumerate(chunks):
         chunk.metadata["chunk_index"] = i
+        chunk.metadata["rag_snippet"] = chunk.page_content  # ✅ for best match display
     return chunks
 
 # 🚫 Deduplication
