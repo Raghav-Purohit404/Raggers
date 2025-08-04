@@ -6,32 +6,46 @@ from pathlib import Path
 from typing import List
 from langchain.schema import Document
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFileLoader
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from pptx import Presentation
 from bs4 import BeautifulSoup
 import requests
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Paths
+# Constants
 HASH_STORE_PATH = "indexed_hashes.pkl"
-SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
+SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx", ".ppt", ".pptx"]
+MIN_TOKENS = 20  # 🧹 Filter out too short chunks
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
 
-# Load or initialize hash memory
+# Load or init hash memory
 if os.path.exists(HASH_STORE_PATH):
     with open(HASH_STORE_PATH, "rb") as f:
         indexed_hashes = pickle.load(f)
 else:
     indexed_hashes = set()
 
-# ✨ Utility: hash content for deduplication
+# 🔑 Hash utility
 def hash_content(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
 
-# 📁 Load new files (PDF, TXT, DOCX, etc.)
+# 📄 PowerPoint (.ppt/.pptx) Loader
+def load_ppt_file(path: str) -> List[Document]:
+    prs = Presentation(path)
+    text = ""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text += shape.text + "\n"
+    return [Document(page_content=text, metadata={"source": Path(path).name, "ingested_by": "backend"})]
+
+# 📁 Load files from folder
 def load_new_files(folder: Path, processed: set) -> List[Document]:
     docs = []
     for file in folder.glob("*"):
@@ -40,9 +54,12 @@ def load_new_files(folder: Path, processed: set) -> List[Document]:
             try:
                 if ext == ".pdf":
                     loader = PyMuPDFLoader(str(file))
+                    pages = loader.load()
+                elif ext in [".ppt", ".pptx"]:
+                    pages = load_ppt_file(str(file))
                 else:
                     loader = UnstructuredFileLoader(str(file))
-                pages = loader.load()
+                    pages = loader.load()
 
                 for i, doc in enumerate(pages):
                     doc.metadata["source"] = file.name
@@ -55,7 +72,7 @@ def load_new_files(folder: Path, processed: set) -> List[Document]:
                 logger.error(f"❌ Failed to load {file.name}: {e}")
     return docs
 
-# 🌐 Scrape web pages
+# 🌐 Web loader
 def load_web(urls: List[str], url_cache: dict) -> List[Document]:
     docs = []
     for url in urls:
@@ -79,12 +96,15 @@ def load_web(urls: List[str], url_cache: dict) -> List[Document]:
 
 # ✂️ Chunking
 def chunk_documents(docs: List[Document]) -> List[Document]:
-    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     chunks = splitter.split_documents(docs)
+    filtered_chunks = []
     for i, chunk in enumerate(chunks):
-        chunk.metadata["chunk_index"] = i
-        chunk.metadata["rag_snippet"] = chunk.page_content  # ✅ for best match display
-    return chunks
+        if len(chunk.page_content.strip().split()) >= MIN_TOKENS:
+            chunk.metadata["chunk_index"] = i
+            chunk.metadata["rag_snippet"] = chunk.page_content
+            filtered_chunks.append(chunk)
+    return filtered_chunks
 
 # 🚫 Deduplication
 def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
@@ -98,7 +118,7 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
             unique.append(chunk)
     return unique
 
-# 🔖 Embedding & saving to FAISS
+# 🔖 Embed & Save
 def update_index(chunks: List[Document], index_path="combined_faiss_index"):
     embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
     if Path(index_path).exists():
@@ -111,8 +131,9 @@ def update_index(chunks: List[Document], index_path="combined_faiss_index"):
     with open(HASH_STORE_PATH, "wb") as f:
         pickle.dump(indexed_hashes, f)
 
-# 🧠 Entry point for backend ingestion
-def run_background_ingestion(pdf_dir: str, urls: List[str], index_path="combined_faiss_index"):
+# 🧠 Main entry point
+def run_background_ingestion(pdf_dir: str, urls: List[str], index_path="combined_faiss_index", benchmark=False):
+    start = time.time()
     pdf_dir = Path(pdf_dir)
     processed_files = set()
     url_cache = {}
@@ -128,7 +149,10 @@ def run_background_ingestion(pdf_dir: str, urls: List[str], index_path="combined
     chunks = chunk_documents(all_docs)
     chunks = deduplicate_chunks(chunks)
     if chunks:
-        logger.info(f"✅ {len(chunks)} new unique chunks to index.")
+        logger.info(f"✅ {len(chunks)} unique chunks to index.")
         update_index(chunks, index_path)
     else:
         logger.warning("❌ No unique chunks after deduplication.")
+
+    if benchmark:
+        logger.info(f"⏱️ Ingestion completed in {round(time.time() - start, 2)}s")
