@@ -5,6 +5,7 @@ import streamlit as st
 import tempfile
 from pathlib import Path
 from datetime import datetime
+import time
 
 # ✅ Set Streamlit page config FIRST
 st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
@@ -185,10 +186,24 @@ if run_query and query:
 
         word_limit = get_word_limit(answer_type)
         prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nStrictly answer in exactly {word_limit} words. Count your words."
+
+        # ⏱️ Start timing
+        start_time = time.time()
         answer = get_llm_response(prompt, word_limit)
+        end_time = time.time()
+        response_time = round(end_time - start_time, 2)
+
+        total_file_size_bytes = sum(len(doc.page_content.encode('utf-8')) for doc in docs)
+        total_file_size_mb = round(total_file_size_bytes / (1024 * 1024), 2)
+        response_size_mb = round(len(answer.encode('utf-8')) / (1024 * 1024), 4)
 
         st.subheader("💬 Answer")
         st.write(answer)
+
+        with st.expander("📊 Response Metrics"):
+            st.markdown(f"**LLM Response Time:** `{response_time}` seconds")
+            st.markdown(f"**Total Size of Retrieved Documents:** `{total_file_size_mb}` MB")
+            st.markdown(f"**Size of Generated Response:** `{response_size_mb}` MB")
 
         st.subheader("📌 Source Snippets")
         for i, doc in enumerate(docs, start=1):
@@ -204,10 +219,21 @@ if run_query and query:
     else:
         st.warning("⚠️ No FAISS index found. Using LLM-only mode.")
         try:
+            start_time = time.time()
             result = run_pipeline(prompt=query)
+            end_time = time.time()
+            response_time = round(end_time - start_time, 2)
+            response_size_mb = round(len(result.encode("utf-8")) / (1024 * 1024), 4)
+
             st.subheader("💬 Answer (LLM Only)")
             st.write(result)
+
+            with st.expander("📊 Response Metrics"):
+                st.markdown(f"**LLM Response Time:** `{response_time}` seconds")
+                st.markdown(f"**Size of Generated Response:** `{response_size_mb}` MB")
+
             log_query(query, result)
+
         except Exception as e:
             st.error(f"Error: {e}")
 
