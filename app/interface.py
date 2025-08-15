@@ -13,6 +13,21 @@ st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
 # ─────────────────────────────────────────────────────────────
 #  PATH & IMPORT SETUP
 # ─────────────────────────────────────────────────────────────
+import subprocess
+import sys
+import os
+
+# Start file monitor in background if not already running
+def start_file_monitor():
+    monitor_script = os.path.join(os.path.dirname(__file__), "utils", "monitoring.py")
+    try:
+        # Start in detached mode so it doesn't block Streamlit
+        subprocess.Popen([sys.executable, monitor_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("File monitor started.")
+    except Exception as e:
+        print(f"Could not start file monitor: {e}")
+
+start_file_monitor()
 
 # Add root repo to sys.path for module imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
