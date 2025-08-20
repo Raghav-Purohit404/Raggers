@@ -1,183 +1,134 @@
+import os
 import time
 import hashlib
-import csv
-import os
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from datetime import datetime
-import schedule
+import logging
 import subprocess
 import threading
+import csv
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-# Paths to watch
-WATCH_FOLDERS = [
-    
-    r"D:\Projects\Raggers\Raggers\Backend_docs"   # Backend docs
-]
+# Paths
+WATCH_FOLDER = "D:\\Projects\\Raggers\\doc_storage"
+LOG_FILE = "file_changes.log"
+HASH_TRACK_FILE = "file_hashes.csv"
 
-# CSV log file path
-LOG_FILE = r"D:\Projects\Raggers\utils\file_change_log.csv"
-HASH_TRACK_FILE = r"D:\Projects\Raggers\utils\last_hashes.csv"
+# Logging
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
-# Ensure CSV log file exists with headers
-if not os.path.exists(LOG_FILE):
-    with open(LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Timestamp", "File Path", "Change Type", "Hash"])
-
-# Ensure hash tracking file exists
-if not os.path.exists(HASH_TRACK_FILE):
-    with open(HASH_TRACK_FILE, mode="w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["File Path", "Hash"])
-
-
+# -------- File Hash Utilities --------
 def file_hash(file_path):
-    """Generate SHA256 hash for the file."""
+    """Generate SHA256 hash of a file"""
+    sha256 = hashlib.sha256()
     try:
         with open(file_path, "rb") as f:
-            file_data = f.read()
-        return hashlib.sha256(file_data).hexdigest()
-    except FileNotFoundError:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+    except Exception:
         return None
 
-
 def load_previous_hashes():
-    """Load stored file hashes from last run."""
+    """Load hashes from CSV into dict"""
+    if not os.path.exists(HASH_TRACK_FILE):
+        return {}
     hashes = {}
-    if os.path.exists(HASH_TRACK_FILE):
-        with open(HASH_TRACK_FILE, mode="r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader, None)  # skip header
-            for row in reader:
-                if len(row) == 2:
-                    hashes[row[0]] = row[1]
+    with open(HASH_TRACK_FILE, "r", newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) == 2:
+                hashes[row[0]] = row[1]
     return hashes
 
-
 def save_hashes(hashes):
-    """Save current file hashes."""
-    with open(HASH_TRACK_FILE, mode="w", newline="", encoding="utf-8") as f:
+    """Save hashes to CSV"""
+    with open(HASH_TRACK_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["File Path", "Hash"])
-        for path, hash_val in hashes.items():
-            writer.writerow([path, hash_val])
+        for path, h in hashes.items():
+            writer.writerow([path, h])
 
-
+# -------- Ingestion Trigger --------
 def trigger_ingestion():
-    """Run backend ingestion for updated files."""
+    """Trigger backend ingestion with correct index path"""
     try:
-        result = subprocess.run([
-            "python",
-            r"D:\Projects\Raggers\utils\backend_ingestion.py",
-            "--folder", r"D:\Projects\Raggers\doc_storage",
-            "--update"
-        ], check=True, capture_output=True, text=True)
-        
-        print("✅ Backend ingestion triggered successfully.")
-        print(result.stdout)
-    except subprocess.CalledProcessError as e:
-        print("❌ Backend ingestion failed.")
-        print("Error Output:", e.stderr)
+        logging.info("Triggering backend ingestion...")
+        subprocess.run([
+            "python", "D:\\Projects\\Raggers\\utils\\backend_ingestion.py",
+            "--folder", WATCH_FOLDER,
+            "--update",
+            "--index-path", "faiss_backend"  # ✅ Always point to same FAISS index
+        ])
+        logging.info("Backend ingestion completed.")
+    except Exception as e:
+        logging.error(f"Error triggering ingestion: {e}")
 
+# -------- Watchdog Event Handler --------
+class WatcherHandler(FileSystemEventHandler):
+    def on_any_event(self, event):
+        if event.is_directory:
+            return
 
-def log_change(file_path, change_type):
-    """Log file changes with timestamp and hash."""
-    file_hash_val = file_hash(file_path)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    with open(LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([timestamp, file_path, change_type, file_hash_val])
-    
-    print(f"[{timestamp}] {change_type}: {file_path}")
+        file_path = event.src_path
+        h = file_hash(file_path)
+        logging.info(f"Change detected: {event.event_type} - {file_path} - {h}")
 
-    # Trigger ingestion on file creation or modification
-    if change_type in ("Created", "Modified"):
+        # Update stored hashes
+        hashes = load_previous_hashes()
+        hashes[file_path] = h
+        save_hashes(hashes)
+
+        # Trigger ingestion
         trigger_ingestion()
 
+# -------- Periodic Cron Check --------
+def cron_check():
+    """Verify file hashes every 12 hours"""
+    while True:
+        time.sleep(43200)  # 12 hours
+        logging.info("Running periodic hash check...")
 
-class ChangeHandler(FileSystemEventHandler):
-    """Handles file system events."""
-    
-    def on_created(self, event):
-        if not event.is_directory:
-            log_change(event.src_path, "Created")
+        hashes = load_previous_hashes()
+        updated = False
 
-    def on_modified(self, event):
-        if not event.is_directory:
-            log_change(event.src_path, "Modified")
+        for root, _, files in os.walk(WATCH_FOLDER):
+            for file in files:
+                file_path = os.path.join(root, file)
+                h = file_hash(file_path)
+                if file_path not in hashes or hashes[file_path] != h:
+                    logging.info(f"Change found during cron: {file_path} - {h}")
+                    hashes[file_path] = h
+                    updated = True
 
-    def on_deleted(self, event):
-        if not event.is_directory:
-            log_change(event.src_path, "Deleted")
-
+        if updated:
+            save_hashes(hashes)
+            trigger_ingestion()
 
 def start_watchdog():
-    """Start watchdog observers for both frontend and backend folders."""
-    observers = []
-    for folder in WATCH_FOLDERS:
-        if os.path.exists(folder):
-            observer = Observer()
-            observer.schedule(ChangeHandler(), folder, recursive=True)
-            observer.start()
-            observers.append(observer)
-            print(f"Started monitoring folder: {folder}")
-        else:
-            print(f"Folder does not exist, skipping: {folder}")
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        for observer in observers:
-            observer.stop()
-        for observer in observers:
-            observer.join()
-
-
-def cron_check():
-    """Cron job to check if any file hash changed since last run."""
-    prev_hashes = load_previous_hashes()
-    curr_hashes = {}
-    changes_detected = False
-
-    for folder in WATCH_FOLDERS:
-        if os.path.exists(folder):
-            for root, _, files in os.walk(folder):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    hash_val = file_hash(file_path)
-                    curr_hashes[file_path] = hash_val
-
-                    # Detect change
-                    if prev_hashes.get(file_path) != hash_val:
-                        changes_detected = True
-                        log_change(file_path, "Cron Detected Change")
-
-    save_hashes(curr_hashes)
-
-    if changes_detected:
-        print("🔄 Changes detected by cron — triggering ingestion...")
-        trigger_ingestion()
-    else:
-        print("✅ No changes detected by cron.")
-
+    """Start watchdog observer"""
+    event_handler = WatcherHandler()
+    observer = Observer()
+    observer.schedule(event_handler, WATCH_FOLDER, recursive=True)
+    observer.start()
+    logging.info("Watchdog started.")
+    observer.join()
 
 def start_cron():
-    """Run cron every 12 hours as safety net."""
-    schedule.every(12).hours.do(cron_check)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    """Start cron check"""
+    logging.info("Cron job started.")
+    cron_check()
 
-
+# -------- Main --------
 if __name__ == "__main__":
-    # Run watchdog in one thread
     t1 = threading.Thread(target=start_watchdog)
-    t1.start()
-
-    # Run cron in another thread
     t2 = threading.Thread(target=start_cron)
+    t1.start()
     t2.start()
+    t1.join()
+    t2.join()
+
 
