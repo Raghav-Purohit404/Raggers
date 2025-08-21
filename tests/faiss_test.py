@@ -1,42 +1,26 @@
-from pathlib import Path
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-
-# ✅ Use absolute path to your index directory
-INDEX_PATH = Path("C:/Users/Tharun B/OneDrive/Desktop/Chatbot/Raggers/faiss_index")
-
-# ✅ Initialize the same embedder used while building the index
-embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-# ✅ Load the existing FAISS index
-try:
-    vectorstore = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
-    print("✅ FAISS index loaded successfully.")
-    print(f"📦 Total vector chunks in index: {len(vectorstore.index_to_docstore_id)}")
-except Exception as e:
-    print(f"❌ Error loading FAISS index: {e}")
-
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from collections import defaultdict
-import os
 
-# Define your index path
-INDEX_PATH = Path("C:/Users/Tharun B/OneDrive/Desktop/Chatbot/Raggers/faiss_index")
+INDEX_PATH = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\combined_faiss_index"
+embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+index = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
 
-# Load the embedder and index
-embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-vectorstore = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
+docs = list(index.docstore._dict.values())
 
-# Count chunks by source document
-chunk_count_by_source = defaultdict(int)
-for doc in vectorstore.docstore._dict.values():
-    source = os.path.basename(doc.metadata.get("source", "Unknown"))
-    chunk_count_by_source[source] += 1
+sources = defaultdict(list)
+for d in docs:
+    src = d.metadata.get("source", "❌ unknown")
+    sources[src].append(d.page_content[:120])
 
-# Print summary
-print("📊 Chunks per document:")
-for source, count in chunk_count_by_source.items():
-    print(f"📄 {source}: {count} chunks")
+print("\n📊 Sources inside FAISS:")
+for src, chunks in sorted(sources.items(), key=lambda x: (-len(x[1]), x[0])):
+    print(f"{src} → {len(chunks)} chunks")
 
-print(f"\n✅ Total Chunks: {sum(chunk_count_by_source.values())}")
+# Show a couple of examples from any local PDFs to confirm they are really there
+print("\n🔎 Sample previews from local PDFs:")
+for src, chunks in sources.items():
+    if src.lower().endswith(".pdf"):
+        print(f"\n--- {src} ---")
+        for preview in chunks[:2]:
+            print("•", preview.replace("\n", " ")[:200])

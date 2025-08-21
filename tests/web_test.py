@@ -1,21 +1,26 @@
-import sys
-import os
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from collections import Counter
+from pathlib import Path
 
-# Add root directory to path for import resolution
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Path to your FAISS index folder
+INDEX_PATH = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\combined_faiss_index"
 
-from utils.backend_ingestion import run_background_ingestion
+# Load embeddings
+embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
 
-# Define web URLs to ingest
-urls = [
-    "https://en.wikipedia.org/wiki/Artificial_intelligence",
-    "https://en.wikipedia.org/wiki/Deep_learning"
-]
+# Load FAISS index
+db = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
 
-# Call the ingestion function with empty PDF folder path
-run_background_ingestion(
-    pdf_dir="C:/rag_data", 
-    urls=urls,
-    index_path="combined_faiss_index"
-)
+# Get all documents stored
+all_docs = db.similarity_search("", k=1000)  # blank query fetches max docs
 
+# Count chunks per source
+sources = [doc.metadata.get("source", "unknown") for doc in all_docs]
+counts = Counter(sources)
+
+print("\n📊 Chunks grouped by document source:\n")
+for src, count in counts.items():
+    print(f"{src} → {count} chunks")
+
+print(f"\n✅ Total chunks in FAISS: {len(all_docs)}")

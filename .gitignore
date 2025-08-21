@@ -2,3 +2,18 @@
 .venv/
 logs/
 cuda_support_check.py
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv*/
+.venv/
+
+# FAISS index & pickle artifacts
+*.faiss
+*.pkl
+
+# Logs
+*.csv
+logs/

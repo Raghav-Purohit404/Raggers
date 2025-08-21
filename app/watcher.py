@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.backend_ingestion import run_background_ingestion
 
 # Folder containing .pdf, .txt, .csv, .docx, .md files
-pdf_dir = "rag_data"
+pdf_dir ="C:\backend_rag_data"
 
 # Web URLs to monitor and ingest
 urls = [

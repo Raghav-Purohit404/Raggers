@@ -10,14 +10,14 @@ import subprocess
 import threading
 
 # Paths to watch
-WATCH_FOLDERS = [
-    
-    r"D:\Projects\Raggers\Raggers\Backend_docs"   # Backend docs
+WATCH_FOLDERS =  [
+    r"C:\backend_rag_data"
 ]
 
-# CSV log file path
-LOG_FILE = r"D:\Projects\Raggers\utils\file_change_log.csv"
-HASH_TRACK_FILE = r"D:\Projects\Raggers\utils\last_hashes.csv"
+# CSV log file paths
+LOG_FILE = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\utils\file_change_log.csv"
+HASH_TRACK_FILE = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\utils\last_hashes.csv"
+
 
 # Ensure CSV log file exists with headers
 if not os.path.exists(LOG_FILE):
@@ -33,13 +33,18 @@ if not os.path.exists(HASH_TRACK_FILE):
 
 
 def file_hash(file_path):
-    """Generate SHA256 hash for the file."""
-    try:
-        with open(file_path, "rb") as f:
-            file_data = f.read()
-        return hashlib.sha256(file_data).hexdigest()
-    except FileNotFoundError:
-        return None
+    """Generate MD5 hash of a file with retry if it's locked."""
+    retries = 5
+    for attempt in range(retries):
+        try:
+            with open(file_path, "rb") as f:
+                return hashlib.md5(f.read()).hexdigest()
+        except PermissionError:
+            if attempt < retries - 1:
+                time.sleep(1)  # wait 1 sec and retry
+            else:
+                raise
+
 
 
 def load_previous_hashes():
@@ -63,17 +68,25 @@ def save_hashes(hashes):
         for path, hash_val in hashes.items():
             writer.writerow([path, hash_val])
 
+# ✅ Path to FAISS index (must match backend_ingestion.py)
+INDEX_PATH = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\combined_faiss_index"
+
 
 def trigger_ingestion():
     """Run backend ingestion for updated files."""
+    cmd = [
+        r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\venv310\Scripts\python.exe",
+        r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\utils\backend_ingestion.py",
+        "--folder", r"C:\backend_rag_data",
+        "--update",
+        "--benchmark",   # 👈 optional: see how long it takes
+    ]
+    
+    print("\n🔎 Running ingestion command:")
+    print("   ", " ".join(cmd))   # ✅ print full command
+
     try:
-        result = subprocess.run([
-            "python",
-            r"D:\Projects\Raggers\utils\backend_ingestion.py",
-            "--folder", r"D:\Projects\Raggers\doc_storage",
-            "--update"
-        ], check=True, capture_output=True, text=True)
-        
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         print("✅ Backend ingestion triggered successfully.")
         print(result.stdout)
     except subprocess.CalledProcessError as e:
@@ -101,12 +114,18 @@ class ChangeHandler(FileSystemEventHandler):
     """Handles file system events."""
     
     def on_created(self, event):
-        if not event.is_directory:
-            log_change(event.src_path, "Created")
+      if event.is_directory:
+        return
+      if event.src_path.endswith(".crdownload"):
+        return  # Skip temp download files
+      log_change(event.src_path, "Created")
 
     def on_modified(self, event):
-        if not event.is_directory:
-            log_change(event.src_path, "Modified")
+      if event.is_directory:
+        return
+      if event.src_path.endswith(".crdownload"):
+        return  # Skip temp download files
+      log_change(event.src_path, "Modified")
 
     def on_deleted(self, event):
         if not event.is_directory:
