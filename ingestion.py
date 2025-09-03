@@ -14,12 +14,9 @@ from langchain_core.documents import Document
 
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
 
-# 🔧 Embedder config
 def get_embedder():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
-        model_kwargs={"device": device}
+        model_name=r"D:\Projects\all-MiniLM-L6-v2"
     )
 
 def load_documents_from_files(file_paths: List[str]):
@@ -139,4 +136,3 @@ if __name__ == "__main__":
         get_vectorstore(documents, rebuild=args.rebuild, save_path=args.save_path)
     else:
         get_vectorstore([], rebuild=False, load_path=args.load_path)
-

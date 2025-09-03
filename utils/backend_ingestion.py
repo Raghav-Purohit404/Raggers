@@ -119,7 +119,9 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
 
 def update_index(chunks: List[Document], index_path=INDEX_PATH):
     logger.info(f"🗂️ Updating FAISS index at: {index_path}")
-    embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+    # 🔧 Use local MiniLM embeddings instead of online download
+    embedder = HuggingFaceEmbeddings(model_name=r"D:\Projects\all-MiniLM-L6-v2")
+
     if Path(index_path).exists():
         index = FAISS.load_local(index_path, embedder, allow_dangerous_deserialization=True)
         index.add_documents(chunks)
