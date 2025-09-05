@@ -168,28 +168,6 @@ if process:
 
 query = st.text_input("💬 Ask a question:")
 
-# OPTIONAL: Query size selection
-st.markdown("### 🧠 (Optional) Choose answer depth:")
-col1, col2, col3, col4 = st.columns(4)
-answer_type = None
-
-if col1.button("Summary (100 words)"):
-    answer_type = "summary"
-elif col2.button("Overview (200 words)"):
-    answer_type = "overview"
-elif col3.button("Detailed (400 words)"):
-    answer_type = "detailed"
-elif col4.button("Deep Dive (600+ words)"):
-    answer_type = "deep_dive"
-
-def get_word_limit(answer_type):
-    return {
-        "summary": 100,
-        "overview": 200,
-        "detailed": 400,
-        "deep_dive": 600
-    }.get(answer_type, 150)
-
 run_query = st.button("🔍 Run Query")
 
 if run_query and query:
@@ -199,12 +177,11 @@ if run_query and query:
         docs = retriever.get_relevant_documents(query)
         context = "\n\n".join(doc.page_content for doc in docs[:5])
 
-        word_limit = get_word_limit(answer_type)
-        prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nStrictly answer in exactly {word_limit} words. Count your words."
+        prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer based on the context above."
 
         # ⏱️ Start timing
         start_time = time.time()
-        answer = get_llm_response(prompt, word_limit)
+        answer = get_llm_response(prompt)
         end_time = time.time()
         response_time = round(end_time - start_time, 2)
 
@@ -307,7 +284,7 @@ else:
     for i, row in data_to_download.iterrows():
         st.markdown(f"**Timestamp:** {row['Timestamp']}")
         st.markdown(f"**Query:** {row['Query']}")
-        st.markdown(f"**Response:** {row['Response']}")
+        st.markdown(f"**Response:** {row['Response']}") 
         feedback = st.radio(
             f"Feedback for {row['Timestamp']}",
             options=["", "👍", "👎"],
