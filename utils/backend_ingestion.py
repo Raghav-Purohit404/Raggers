@@ -13,36 +13,53 @@ from pptx import Presentation  # type: ignore
 from bs4 import BeautifulSoup
 import requests
 import argparse
-
-
-# ... your imports (unchanged) ...
-import argparse
 import logging
+
+
+# ========================
+# 🔧 Logging setup
+# ========================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ========================
-# 🔧 Constants & Paths
+# 🔧 Dynamic Paths (Repo-relative)
 # ========================
-HASH_STORE_PATH = "indexed_hashes.pkl"
-INDEX_PATH = r"C:\Users\Tharun B\OneDrive\Desktop\Chatbot\Raggers\combined_faiss_index"
+# BASE_DIR → Raggers/utils/
+BASE_DIR = Path(__file__).resolve().parents[2]
+# PROJECT_ROOT → Chatbot/
+PROJECT_ROOT = BASE_DIR.parent.parent
 
+# Important folders (auto-adjust when repo is cloned anywhere)
+HASH_STORE_PATH = BASE_DIR / "indexed_hashes.pkl"
+INDEX_PATH = PROJECT_ROOT / "combined_faiss_index"
+DEFAULT_DOC_FOLDER = PROJECT_ROOT / "Raggers" / "backend_rag_data"
+
+# ========================
+# 🔧 Constants
+# ========================
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx", ".ppt", ".pptx"]
 MIN_TOKENS = 20
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
+
 # ========================
-# 🔑 Load or init hash memory
+# 🔑 Load or initialize hash store
 # ========================
-if os.path.exists(HASH_STORE_PATH):
+if HASH_STORE_PATH.exists():
     with open(HASH_STORE_PATH, "rb") as f:
         indexed_hashes = pickle.load(f)
 else:
     indexed_hashes = set()
 
+
+# ========================
+# 🔍 Helper Functions
+# ========================
 def hash_content(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
+
 
 def load_ppt_file(path: str) -> List[Document]:
     prs = Presentation(path)
@@ -52,6 +69,7 @@ def load_ppt_file(path: str) -> List[Document]:
             if hasattr(shape, "text"):
                 text += shape.text + "\n"
     return [Document(page_content=text, metadata={"source": Path(path).name, "ingested_by": "backend"})]
+
 
 def load_new_files(folder: Path, processed: set) -> List[Document]:
     docs = []
@@ -72,12 +90,14 @@ def load_new_files(folder: Path, processed: set) -> List[Document]:
                     doc.metadata["source"] = file.name
                     doc.metadata["page"] = i + 1
                     doc.metadata["ingested_by"] = "backend"
+
                 docs.extend(pages)
                 processed.add(file.name)
                 logger.info(f"📄 Loaded {len(pages)} pages from {file.name}")
             except Exception as e:
                 logger.error(f"❌ Failed to load {file.name}: {e}")
     return docs
+
 
 def load_web(urls: List[str], url_cache: dict) -> List[Document]:
     docs = []
@@ -100,6 +120,7 @@ def load_web(urls: List[str], url_cache: dict) -> List[Document]:
             logger.error(f"❌ Failed to scrape {url}: {e}")
     return docs
 
+
 def chunk_documents(docs: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     chunks = splitter.split_documents(docs)
@@ -111,8 +132,8 @@ def chunk_documents(docs: List[Document]) -> List[Document]:
             filtered_chunks.append(chunk)
     return filtered_chunks
 
+
 def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
-    # 🚨 Deduplication DISABLED for debugging
     logger.warning("⚠️ Deduplication temporarily disabled — all chunks will be indexed.")
     return chunks
 
@@ -120,59 +141,75 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
 def update_index(chunks: List[Document], index_path=INDEX_PATH):
     logger.info(f"🗂️ Updating FAISS index at: {index_path}")
     embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+
     if Path(index_path).exists():
         index = FAISS.load_local(index_path, embedder, allow_dangerous_deserialization=True)
         index.add_documents(chunks)
     else:
+        os.makedirs(index_path, exist_ok=True)
         index = FAISS.from_documents(chunks, embedder)
+
     index.save_local(index_path)
     logger.info(f"✅ Index updated and saved to '{index_path}'")
     logger.info(f"📊 FAISS now contains {len(index.docstore._dict)} documents")
+
     with open(HASH_STORE_PATH, "wb") as f:
         pickle.dump(indexed_hashes, f)
 
-def run_background_ingestion(pdf_dir: str, urls: List[str], index_path=INDEX_PATH, benchmark=False):
-    start = time.time()
-    pdf_dir = Path(pdf_dir).resolve()   # ✅ Resolve to absolute path
-    logger.info(f"🚀 Ingesting from folder: {pdf_dir}")  # ✅ Always print absolute path
-    processed_files = set()
-    url_cache = {}
 
-    # ✅ Check folder existence early
+# ========================
+# 🚀 Main Ingestion Function
+# ========================
+def run_background_ingestion(pdf_dir: Path = DEFAULT_DOC_FOLDER, urls: List[str] = None,
+                             index_path=INDEX_PATH, benchmark=False):
+    if urls is None:
+        urls = []
+    start = time.time()
+
+    pdf_dir = Path(pdf_dir)
+    logger.info(f"🚀 Ingesting from folder: {pdf_dir}")
+
     if not pdf_dir.exists():
         logger.error(f"❌ Folder does not exist: {pdf_dir}")
         return
+
+    processed_files = set()
+    url_cache = {}
 
     new_file_docs = load_new_files(pdf_dir, processed_files)
     new_web_docs = load_web(urls, url_cache)
 
     all_docs = new_file_docs + new_web_docs
     if not all_docs:
-        logger.warning(f"⚠️ No documents found in {pdf_dir}")
+        logger.warning(f"⚠️ No new documents found in {pdf_dir}")
         return
 
     chunks = chunk_documents(all_docs)
     chunks = deduplicate_chunks(chunks)
+
     if chunks:
-        logger.info(f"✅ {len(chunks)} unique chunks to index.")
+        logger.info(f"✅ {len(chunks)} chunks to index.")
         update_index(chunks, index_path)
     else:
-        logger.warning("❌ No unique chunks after deduplication.")
+        logger.warning("❌ No valid chunks to index.")
 
     if benchmark:
         logger.info(f"⏱️ Ingestion completed in {round(time.time() - start, 2)}s")
 
+
 # ========================
-# ✅ CLI ENTRY POINT
+# 🧩 CLI Entry Point
 # ========================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backend ingestion script for RAG")
-    parser.add_argument("--folder", type=str, required=True, help="Folder containing docs to ingest")
+    parser.add_argument("--folder", type=str, default=str(DEFAULT_DOC_FOLDER),
+                        help="Folder containing docs to ingest")
     parser.add_argument("--update", action="store_true", help="Update the existing FAISS index")
     parser.add_argument("--benchmark", action="store_true", help="Measure ingestion time")
-    parser.add_argument("--index", type=str, default=INDEX_PATH, help="Path to FAISS index directory")
+    parser.add_argument("--index", type=str, default=str(INDEX_PATH), help="Path to FAISS index directory")
 
     args = parser.parse_args()
+
     run_background_ingestion(
         pdf_dir=args.folder,
         urls=[],
