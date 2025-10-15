@@ -1,38 +1,85 @@
 import os
 import sys
 from pathlib import Path
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFileLoader
+from pptx import Presentation
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Add root repo to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# ==============================
+# ⚙️ Path Configuration
+# ==============================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
 
-from ingestion import load_documents_from_files, get_vectorstore
+DATA_FOLDER = os.path.join(PROJECT_ROOT, "Raggers", "backend_rag_data")
+INDEX_PATH = os.path.join(PROJECT_ROOT, "Raggers", "combined_faiss_index")
 
-# Set your PDF directory
-pdf_dir = "C:/rag_data"
-index_path = "C:/Users/Tharun B/OneDrive/Desktop/Chatbot/Raggers/faiss_index"
+SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx", ".ppt", ".pptx"]
 
-# Collect supported file paths
-SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx"]
-file_paths = [
-    os.path.join(pdf_dir, f)
-    for f in os.listdir(pdf_dir)
-    if os.path.splitext(f)[1].lower() in SUPPORTED_EXTENSIONS
-]
+# ==============================
+# 📄 File Loading Utilities
+# ==============================
+def load_ppt_file(path: str):
+    prs = Presentation(path)
+    text = ""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text += shape.text + "\n"
+    return text
 
-if not file_paths:
-    print("❌ No supported documents found to rebuild FAISS index.")
-    sys.exit(1)
+def load_documents(folder: str):
+    docs = []
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    for file in Path(folder).glob("*"):
+        ext = file.suffix.lower()
+        if ext in SUPPORTED_EXTENSIONS:
+            try:
+                if ext == ".pdf":
+                    loader = PyMuPDFLoader(str(file))
+                    pages = loader.load()
+                elif ext in [".ppt", ".pptx"]:
+                    text = load_ppt_file(str(file))
+                    pages = [{"page_content": text}]
+                else:
+                    loader = UnstructuredFileLoader(str(file))
+                    pages = loader.load()
+                for doc in pages:
+                    chunks = splitter.split_text(doc["page_content"])
+                    docs.extend(chunks)
+            except Exception as e:
+                print(f"❌ Failed to load {file.name}: {e}")
+    return docs
 
-# Load documents
-documents = load_documents_from_files(file_paths)
+# ==============================
+# 🧠 Rebuild FAISS
+# ==============================
+def rebuild_faiss():
+    if not os.path.exists(DATA_FOLDER):
+        print(f"❌ Folder does not exist: {DATA_FOLDER}")
+        return
 
-# Build and save FAISS index
-if documents:
-    db = get_vectorstore(
-        documents=documents,
-        rebuild=True,
-        save_path=index_path
-    )
-    print(f"✅ FAISS index rebuilt with {len(documents)} documents.")
-else:
-    print("❌ Failed to load documents. No index created.")
+    docs = load_documents(DATA_FOLDER)
+    if not docs:
+        print("⚠️ No documents found to index.")
+        return
+
+    embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+
+    if os.path.exists(INDEX_PATH):
+        import shutil
+        shutil.rmtree(INDEX_PATH)
+
+    os.makedirs(INDEX_PATH, exist_ok=True)
+    index = FAISS.from_texts(docs, embedder)
+    index.save_local(INDEX_PATH)
+    print(f"✅ FAISS index rebuilt successfully with {len(docs)} chunks.")
+    print(f"📁 Index saved to: {INDEX_PATH}")
+
+# ==============================
+# 🚀 Run
+# ==============================
+if __name__ == "__main__":
+    rebuild_faiss()
