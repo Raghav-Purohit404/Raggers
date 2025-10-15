@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # 🔧 Dynamic Paths (Repo-relative)
 # ========================
 # BASE_DIR → Raggers/utils/
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parent
 # PROJECT_ROOT → Chatbot/
 PROJECT_ROOT = BASE_DIR.parent.parent
 
@@ -133,14 +133,6 @@ def chunk_documents(docs: List[Document]) -> List[Document]:
     return filtered_chunks
 
 
-<<<<<<< HEAD
-# 🔖 Embed & Save
-def update_index(chunks: List[Document], index_path="faiss_backend"):
-    """
-    Update FAISS index at index_path. Default index_path set to 'faiss_backend'
-    so it matches monitoring.py which triggers ingestion with --index-path faiss_backend.
-    """
-=======
 def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
     logger.warning("⚠️ Deduplication temporarily disabled — all chunks will be indexed.")
     return chunks
@@ -148,7 +140,6 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
 
 def update_index(chunks: List[Document], index_path=INDEX_PATH):
     logger.info(f"🗂️ Updating FAISS index at: {index_path}")
->>>>>>> new_branch
     embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
 
     if Path(index_path).exists():
@@ -165,16 +156,6 @@ def update_index(chunks: List[Document], index_path=INDEX_PATH):
     with open(HASH_STORE_PATH, "wb") as f:
         pickle.dump(indexed_hashes, f)
 
-<<<<<<< HEAD
-# 🧠 Main entry point
-def run_background_ingestion(pdf_dir: str, urls: List[str], index_path="faiss_backend", benchmark=False):
-    """
-    Main ingestion routine.
-    - pdf_dir: folder path to ingest (this is passed from monitoring.py)
-    - urls: optional list of urls to scrape and ingest
-    - index_path: FAISS index path (default 'faiss_backend' to match monitoring)
-    """
-=======
 
 # ========================
 # 🚀 Main Ingestion Function
@@ -183,7 +164,6 @@ def run_background_ingestion(pdf_dir: Path = DEFAULT_DOC_FOLDER, urls: List[str]
                              index_path=INDEX_PATH, benchmark=False):
     if urls is None:
         urls = []
->>>>>>> new_branch
     start = time.time()
 
     pdf_dir = Path(pdf_dir)
@@ -195,14 +175,6 @@ def run_background_ingestion(pdf_dir: Path = DEFAULT_DOC_FOLDER, urls: List[str]
 
     processed_files = set()
     url_cache = {}
-
-    # Log the target folder and index path so caller (monitoring) can confirm
-    logger.info(f"🚀 Starting ingestion for folder: {pdf_dir} | index: {index_path}")
-
-    # Ensure folder exists
-    if not pdf_dir.exists():
-        logger.warning(f"⚠️ Provided folder does not exist: {pdf_dir}")
-        return
 
     new_file_docs = load_new_files(pdf_dir, processed_files)
     new_web_docs = load_web(urls, url_cache)
@@ -225,26 +197,6 @@ def run_background_ingestion(pdf_dir: Path = DEFAULT_DOC_FOLDER, urls: List[str]
         logger.info(f"⏱️ Ingestion completed in {round(time.time() - start, 2)}s")
 
 
-<<<<<<< HEAD
-# ------------------------------
-# CLI wrapper so monitoring.py can call this with --folder / --index-path
-# ------------------------------
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Backend ingestion for FAISS index")
-    parser.add_argument("--folder", type=str, required=True, help="Folder containing documents to ingest")
-    parser.add_argument("--urls", nargs="*", default=[], help="Optional URLs to ingest alongside files")
-    parser.add_argument("--index-path", type=str, default="faiss_backend", help="FAISS index path (default: faiss_backend)")
-    parser.add_argument("--benchmark", action="store_true", help="Enable benchmark timing output")
-    args = parser.parse_args()
-
-    # Call the ingestion routine with values from CLI (monitoring.py will pass --folder and --index-path)
-    run_background_ingestion(
-        pdf_dir=args.folder,
-        urls=args.urls,
-        index_path=args.index_path,
-=======
 # ========================
 # 🧩 CLI Entry Point
 # ========================
@@ -262,6 +214,5 @@ if __name__ == "__main__":
         pdf_dir=args.folder,
         urls=[],
         index_path=args.index,
->>>>>>> new_branch
         benchmark=args.benchmark
     )
