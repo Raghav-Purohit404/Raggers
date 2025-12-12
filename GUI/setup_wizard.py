@@ -32,17 +32,23 @@ class SetupWizard(QWidget):
         layout.addWidget(QLabel("Ollama status / model:"))
         model_row = QHBoxLayout()
         self.model_combo = QComboBox()
-        self.refresh_ollama_models()
+
+        # ❌ removed old early refresh call here
+
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_ollama_models)
         model_row.addWidget(self.model_combo)
         model_row.addWidget(refresh_btn)
         layout.addLayout(model_row)
 
+        # Install button MUST be created BEFORE refresh_ollama_models is called
         self.install_btn = QPushButton("Install Ollama (Open download page)")
         self.install_btn.clicked.connect(open_ollama_download_page)
         self.install_btn.setEnabled(not is_ollama_installed())
         layout.addWidget(self.install_btn)
+
+        # ✅ NOW it is safe to call refresh
+        self.refresh_ollama_models()
 
         btn_row = QHBoxLayout()
         ok_btn = QPushButton("OK")
@@ -84,12 +90,12 @@ class SetupWizard(QWidget):
             QMessageBox.critical(self, "Missing folder", "Please choose a root folder.")
             return
         root_p = Path(root).resolve()
-        # force-create standard tree
         created = ensure_tree(root_p)
-        # determine model choice
+
         model_choice = self.model_combo.currentText().strip()
         if model_choice.startswith("(none detected)"):
             model_choice = DEFAULT_MODEL
+
         cfg = {
             "root": created["root"],
             "watchdog_path": created["watchdog_path"],
@@ -107,8 +113,9 @@ class SetupWizard(QWidget):
         self.close()
 
 def run_wizard_sync():
-    app = QApplication.instance() or QApplication(sys.argv)
-    w = SetupWizard()
-    w.show()
-    app.exec()
-    return w.result
+        app = QApplication.instance() or QApplication(sys.argv)
+        w = SetupWizard()
+        w.show()
+        app.exec()
+        return w.result
+
