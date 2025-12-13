@@ -3,7 +3,7 @@
 import os
 from PyInstaller.utils.hooks import collect_submodules
 
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.abspath(SPECPATH))
 
 # Directories that must be included in final executable
 data_dirs = [
