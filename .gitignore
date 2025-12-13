@@ -1,19 +1,46 @@
-﻿__pycache__/
-.venv/
-logs/
-cuda_support_check.py
-# Python cache
+﻿# -----------------------------------
+# Python cache and compiled files
+# -----------------------------------
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Virtual environment
-venv*/
+# -----------------------------------
+# Virtual environments
+# -----------------------------------
 .venv/
+venv/
+env/
 
+# -----------------------------------
+# Logs & temporary runtime files
+# -----------------------------------
+logs/
+*.log
+*.csv
+
+# -----------------------------------
 # FAISS index & pickle artifacts
+# -----------------------------------
 *.faiss
 *.pkl
 
-# Logs
-*.csv
-logs/
+# -----------------------------------
+# PyInstaller build outputs
+# -----------------------------------
+/dist/
+/build/
+/*.spec
+
+# -----------------------------------
+# OS / Editor files
+# -----------------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------------
+# Custom project excludes
+# -----------------------------------
+cuda_support_check.py
+
