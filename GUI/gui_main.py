@@ -1,61 +1,108 @@
 # gui_main.py
 import sys
+import os
 import threading
 import time
 from pathlib import Path
+import traceback
+import subprocess
+
+# Local imports
 from config_manager import AppConfig, ensure_tree
 from setup_wizard import run_wizard_sync
-import importlib
-import subprocess
-import traceback
 
-# If you want the GUI to auto-launch your interface (streamlit) after setup, set to True.
+# Auto-launch Streamlit interface after setup?
 AUTO_LAUNCH_INTERFACE = True
+
+
+# ---------------------------------------------------------
+# 1. RESOURCE PATH HANDLING (CRITICAL FOR PYINSTALLER)
+# ---------------------------------------------------------
+
+def resource_path(relative):
+    """
+    Returns absolute path to resource bundled by PyInstaller.
+    Inside EXE, resources live inside _MEIPASS.
+    In normal run, fallback to relative filesystem path.
+    """
+    if hasattr(sys, "_MEIPASS"):
+        return Path(os.path.join(sys._MEIPASS, relative))
+    return Path(relative)
+
+# Allows Python to import GUI/, app/, utils/ when inside EXE
+def add_module_paths():
+    candidates = [
+        resource_path("GUI"),
+        resource_path("app"),
+        resource_path("utils")
+    ]
+    for p in candidates:
+        if p.exists():
+            sys.path.insert(0, str(p))
+
+
+add_module_paths()
+
+
+# ---------------------------------------------------------
+# 2. LOAD OR RUN FIRST-TIME SETUP
+# ---------------------------------------------------------
 
 def load_or_run_wizard():
     cfg = AppConfig.load()
     if cfg:
         return cfg
+
     data = run_wizard_sync()
     if not data:
         print("Setup cancelled.")
         sys.exit(0)
+
     cfg = AppConfig(data)
     cfg.save()
     return cfg
 
+
+# ---------------------------------------------------------
+# 3. INGESTION HANDLING
+# ---------------------------------------------------------
+
 def _find_ingest_callable(app_pkg_path: Path):
     """
-    Attempts to import your app ingestion.
-    Order:
-      1) app.ingestion.ingest_document or ingest_file or ingest
-      2) app.utils.backend_ingestion.add_to_backend / ingest
-    Returns a callable or None.
+    Searches for ingestion functions inside app/ or utils/.
+    Works both in source mode and packaged EXE.
     """
-    sys.path.insert(0, str(app_pkg_path.parent))  # add repo root so imports resolve
+    sys.path.insert(0, str(app_pkg_path.parent))
+
     candidates = []
+
+    # Search app.ingestion
     try:
         import app.ingestion as ui
-        for name in ("ingest_document","ingest_file","ingest"):
+        for name in ("ingest_document", "ingest_file", "ingest"):
             if hasattr(ui, name):
                 candidates.append(getattr(ui, name))
     except Exception:
         pass
+
+    # Search utils.backend_ingestion
     try:
-        import app.utils.backend_ingestion as backend
-        for name in ("add_to_backend","ingest","ingest_file"):
+        import utils.backend_ingestion as backend
+        for name in ("add_to_backend", "ingest", "ingest_file"):
             if hasattr(backend, name):
                 candidates.append(getattr(backend, name))
     except Exception:
         pass
+
     for fn in candidates:
         if callable(fn):
             return fn
+
     return None
+
 
 def ingest_file_via_pipeline(fn, path, cfg):
     try:
-        # try call with (path, cfg) else (path,)
         try:
             fn(path, cfg)
         except TypeError:
@@ -65,63 +112,96 @@ def ingest_file_via_pipeline(fn, path, cfg):
         print("[gui/watchdog] Ingestion failed for:", path)
         traceback.print_exc()
 
+
+# ---------------------------------------------------------
+# 4. WATCHDOG THREAD
+# ---------------------------------------------------------
+
 def start_watchdog_thread(cfg: AppConfig, poll_interval=3):
     watch = Path(cfg.watchdog_path)
     watch.mkdir(parents=True, exist_ok=True)
-    app_dir = Path(__file__).resolve().parents[1] / "app"  # repo_root/app
+
+    app_dir = resource_path("app")
     ingest_fn = _find_ingest_callable(app_dir)
+
     if ingest_fn:
         print("[gui/watchdog] Using ingestion function:", ingest_fn)
     else:
-        print("[gui/watchdog] No ingestion function found in app; watchdog will only log new files.")
+        print("[gui/watchdog] No ingestion function found; watchdog will only log new files.")
 
     seen = set(str(p.resolve()) for p in watch.glob("**/*") if p.is_file())
     print(f"[gui/watchdog] Monitoring {watch} (initial {len(seen)})")
+
     try:
         while True:
             for p in watch.glob("**/*"):
                 if p.is_file():
-                    rp = str(p.resolve())
-                    if rp not in seen:
-                        seen.add(rp)
-                        print("[gui/watchdog] New file:", rp)
+                    real = str(p.resolve())
+                    if real not in seen:
+                        seen.add(real)
+                        print("[gui/watchdog] New file:", real)
                         if ingest_fn:
-                            ingest_file_via_pipeline(ingest_fn, rp, cfg)
+                            ingest_file_via_pipeline(ingest_fn, real, cfg)
             time.sleep(poll_interval)
     except KeyboardInterrupt:
         print("[gui/watchdog] stopped")
 
+
+# ---------------------------------------------------------
+# 5. STREAMLIT LAUNCHER (SAFE FOR EXE)
+# ---------------------------------------------------------
+
 def try_launch_interface():
-    # Launch the app's interface.py (assumes it is streamlit-based like your project)
-    # Adjust the path if your interface entry differs.
+    """
+    Safely launches Streamlit interface ONLY if Python is available.
+    PyInstaller EXE cannot run `python -m streamlit` normally.
+    """
+
+    python_bin = sys.executable
+
+    # If inside pyinstaller bundle, sys.executable = the EXE (not real python)
+    if hasattr(sys, "_MEIPASS"):
+        print("[gui] Running inside EXE — Streamlit auto-launch disabled.")
+        return
+
     try:
-        cmd = [sys.executable, "-m", "streamlit", "run", "app/interface.py"]
+        cmd = [python_bin, "-m", "streamlit", "run", "app/interface.py"]
         subprocess.Popen(cmd)
-        print("[gui] Launched interface: app/interface.py")
+        print("[gui] Launched Streamlit interface.")
     except Exception as e:
         print("[gui] Failed to launch interface:", e)
 
+
+# ---------------------------------------------------------
+# 6. MAIN PROGRAM
+# ---------------------------------------------------------
+
 def main():
     cfg = load_or_run_wizard()
-    # Wrap cfg into AppConfig for convenience if raw dict returned
+
     if not isinstance(cfg, AppConfig):
         cfg = AppConfig(cfg if isinstance(cfg, dict) else cfg.data)
-    # ensure watchdog exists and canonical tree is present
+
+    # Ensure directory structure exists
     ensure_tree(Path(cfg.root))
-    # start watchdog in background
+
+    # Start watchdog in background
     t = threading.Thread(target=start_watchdog_thread, args=(cfg,), daemon=True)
     t.start()
 
+    # Try launching the user interface
     if AUTO_LAUNCH_INTERFACE:
         try_launch_interface()
 
-    # keep main thread alive and simple message loop
+    # Keep process alive
+    print("PhiRAG GUI running. Press Ctrl-C to exit.")
     try:
-        print("PhiRAG GUI running. Press Ctrl-C to exit.")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("Exiting.")
 
+
 if __name__ == "__main__":
     main()
+
