@@ -152,24 +152,26 @@ def start_watchdog_thread(cfg: AppConfig, poll_interval=3):
 # ---------------------------------------------------------
 
 def try_launch_interface():
-    """
-    Safely launches Streamlit interface ONLY if Python is available.
-    PyInstaller EXE cannot run `python -m streamlit` normally.
-    """
-
-    python_bin = sys.executable
-
-    # If inside pyinstaller bundle, sys.executable = the EXE (not real python)
-    if hasattr(sys, "_MEIPASS"):
-        print("[gui] Running inside EXE — Streamlit auto-launch disabled.")
-        return
-
     try:
-        cmd = [python_bin, "-m", "streamlit", "run", "app/interface.py"]
-        subprocess.Popen(cmd)
-        print("[gui] Launched Streamlit interface.")
+        exe = sys.executable  # works for both python & exe
+        app_path = Path(sys.argv[0]).resolve().parent
+
+        interface_path = app_path / "app" / "interface.py"
+
+        cmd = [
+            exe,
+            "-m",
+            "streamlit",
+            "run",
+            str(interface_path),
+            "--server.headless=true",
+        ]
+
+        subprocess.Popen(cmd, cwd=str(app_path))
+        print("[gui] Streamlit launched successfully")
+
     except Exception as e:
-        print("[gui] Failed to launch interface:", e)
+        print("[gui] Failed to launch Streamlit:", e)
 
 
 # ---------------------------------------------------------
