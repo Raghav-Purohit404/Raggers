@@ -44,3 +44,9 @@ Thumbs.db
 # -----------------------------------
 cuda_support_check.py
 
+# Embedded Python runtime (DO NOT COMMIT)
+Installer/python/
+Installer/python/**
+
+# Generated / runtime artifacts
+Installer/runtime_requirements_locked.txt
