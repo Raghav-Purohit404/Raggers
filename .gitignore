@@ -74,3 +74,5 @@ Installer/python/**
 
 # Generated / runtime artifacts
 Installer/runtime_requirements_locked.txt
+
+venv310/
