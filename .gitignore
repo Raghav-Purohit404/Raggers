@@ -43,6 +43,30 @@ Thumbs.db
 # Custom project excludes
 # -----------------------------------
 cuda_support_check.py
+# -----------------------------
+# Embedded Python (DO NOT COMMIT)
+# -----------------------------
+installer/python/
+python/
+Lib/
+Scripts/
+
+# Python packages
+**/site-packages/
+
+# DLLs & binaries
+*.dll
+*.pyd
+*.exe
+
+# Build artifacts
+build/
+dist/
+
+# Python cache
+__pycache__/
+*.pyc
+
 
 # Embedded Python runtime (DO NOT COMMIT)
 Installer/python/

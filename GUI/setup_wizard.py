@@ -4,10 +4,19 @@ from PyQt6.QtWidgets import (
     QFileDialog, QVBoxLayout, QHBoxLayout, QApplication, QMessageBox
 )
 from PyQt6.QtCore import Qt
-from config_manager import ensure_tree, AppConfig, default_subfolders
-from ollama_manager import list_ollama_models, is_ollama_installed, open_ollama_download_page, DEFAULT_MODEL
+
+# FIXED imports
+from GUI.config_manager import ensure_tree, AppConfig, default_subfolders
+from GUI.ollama_manager import (
+    list_ollama_models,
+    is_ollama_installed,
+    open_ollama_download_page,
+    DEFAULT_MODEL
+)
+
 from pathlib import Path
 import sys
+
 
 class SetupWizard(QWidget):
     def __init__(self):
@@ -20,7 +29,9 @@ class SetupWizard(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout()
 
-        layout.addWidget(QLabel("Choose root folder for PhiRAG data (we will create the canonical subfolders):"))
+        layout.addWidget(QLabel(
+            "Choose root folder for PhiRAG data (we will create the canonical subfolders):"
+        ))
         self.root_edit = QLineEdit()
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self.browse_folder)
@@ -33,21 +44,17 @@ class SetupWizard(QWidget):
         model_row = QHBoxLayout()
         self.model_combo = QComboBox()
 
-        # ❌ removed old early refresh call here
-
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_ollama_models)
         model_row.addWidget(self.model_combo)
         model_row.addWidget(refresh_btn)
         layout.addLayout(model_row)
 
-        # Install button MUST be created BEFORE refresh_ollama_models is called
         self.install_btn = QPushButton("Install Ollama (Open download page)")
         self.install_btn.clicked.connect(open_ollama_download_page)
         self.install_btn.setEnabled(not is_ollama_installed())
         layout.addWidget(self.install_btn)
 
-        # ✅ NOW it is safe to call refresh
         self.refresh_ollama_models()
 
         btn_row = QHBoxLayout()
@@ -63,7 +70,9 @@ class SetupWizard(QWidget):
         self.setLayout(layout)
 
     def browse_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select root folder (or choose an existing folder)")
+        d = QFileDialog.getExistingDirectory(
+            self, "Select root folder (or choose an existing folder)"
+        )
         if d:
             self.root_edit.setText(d)
 
@@ -72,7 +81,6 @@ class SetupWizard(QWidget):
         if models:
             self.model_combo.clear()
             self.model_combo.addItems(models)
-            # try to select DEFAULT_MODEL if present
             try:
                 idx = models.index(DEFAULT_MODEL)
                 self.model_combo.setCurrentIndex(idx)
@@ -89,6 +97,7 @@ class SetupWizard(QWidget):
         if not root:
             QMessageBox.critical(self, "Missing folder", "Please choose a root folder.")
             return
+
         root_p = Path(root).resolve()
         created = ensure_tree(root_p)
 
@@ -96,26 +105,27 @@ class SetupWizard(QWidget):
         if model_choice.startswith("(none detected)"):
             model_choice = DEFAULT_MODEL
 
-        cfg = {
+        self.result = {
             "root": created["root"],
             "watchdog_path": created["watchdog_path"],
             "faiss_path": created["faiss_path"],
             "metadata_path": created["metadata_path"],
             "logs_path": created["logs_path"],
             "ollama_model": model_choice,
-            "ollama_url": "http://127.0.0.1:11434"
+            "ollama_url": "http://127.0.0.1:11434",
         }
-        self.result = cfg
         self.close()
 
     def on_cancel(self):
         self.result = None
         self.close()
 
+
 def run_wizard_sync():
-        app = QApplication.instance() or QApplication(sys.argv)
-        w = SetupWizard()
-        w.show()
-        app.exec()
-        return w.result
+    app = QApplication.instance() or QApplication(sys.argv)
+    w = SetupWizard()
+    w.show()
+    app.exec()
+    return w.result
+
 
