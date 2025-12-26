@@ -130,7 +130,7 @@ if __name__ == "__main__":
         for fname in os.listdir(args.folder):
             if fname.lower().endswith(tuple(SUPPORTED_EXTENSIONS)):
                 file_paths.append(os.path.join(args.folder, fname))
-                
+
     documents = load_documents_from_files(file_paths) + load_documents_from_urls(args.urls or [])
 
     if args.rebuild and not documents:

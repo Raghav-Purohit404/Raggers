@@ -3,6 +3,7 @@ import os
 import threading
 import time
 from pathlib import Path
+
 import traceback
 import subprocess
 
@@ -17,6 +18,8 @@ if str(ROOT_DIR) not in sys.path:
 # Local imports (FIXED)
 from GUI.config_manager import AppConfig, ensure_tree
 from GUI.setup_wizard import run_wizard_sync
+from GUI.engine_client import run_engine_query
+
 
 # Auto-launch Streamlit interface after setup?
 AUTO_LAUNCH_INTERFACE = True
@@ -140,36 +143,20 @@ def start_watchdog_thread(cfg: AppConfig, poll_interval=3):
 # ---------------------------------------------------------
 # 5. STREAMLIT LAUNCHER — USE EMBEDDED PYTHON
 # ---------------------------------------------------------
-
 def try_launch_interface():
     try:
-        exe = sys.executable  # works for both python & exe
-        app_path = Path(sys.argv[0]).resolve().parent
-
-        interface_path = app_path / "app" / "interface.py"
-
-        cmd = [
-            exe,
-            "-m",
-            "streamlit",
-            "run",
-            str(interface_path),
-            "--server.headless=true",
-        ]
-
-        subprocess.Popen(cmd, cwd=str(app_path))
-        print("[gui] Streamlit launched successfully")
-
+        print("[gui] GUI is running in lightweight mode.")
+        print("[gui] Engine will be started on demand.")
     except Exception as e:
-        print("[gui] Failed to launch Streamlit:", e)
+        print("[gui] Error in GUI init:", e)
 
 
-# ---------------------------------------------------------
 # 6. MAIN PROGRAM
 # ---------------------------------------------------------
 
 def main():
     cfg = load_or_run_wizard()
+
 
     if not isinstance(cfg, AppConfig):
         cfg = AppConfig(cfg if isinstance(cfg, dict) else cfg.data)
@@ -181,6 +168,8 @@ def main():
 
     if AUTO_LAUNCH_INTERFACE:
         try_launch_interface()
+    
+    
 
     print("PhiRAG GUI running. Press Ctrl-C to exit.")
     try:
