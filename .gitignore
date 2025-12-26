@@ -1,19 +1,78 @@
-﻿__pycache__/
+﻿# -----------------------------------
+# Python cache and compiled files
+# -----------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# -----------------------------------
+# Virtual environments
+# -----------------------------------
 .venv/
+venv/
+env/
+
+# -----------------------------------
+# Logs & temporary runtime files
+# -----------------------------------
 logs/
+*.log
+*.csv
+
+# -----------------------------------
+# FAISS index & pickle artifacts
+# -----------------------------------
+*.faiss
+*.pkl
+
+# -----------------------------------
+# PyInstaller build outputs
+# -----------------------------------
+/dist/
+/build/
+/*.spec
+
+# -----------------------------------
+# OS / Editor files
+# -----------------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------------
+# Custom project excludes
+# -----------------------------------
 cuda_support_check.py
+# -----------------------------
+# Embedded Python (DO NOT COMMIT)
+# -----------------------------
+installer/python/
+python/
+Lib/
+Scripts/
+
+# Python packages
+**/site-packages/
+
+# DLLs & binaries
+*.dll
+*.pyd
+*.exe
+
+# Build artifacts
+build/
+dist/
+
 # Python cache
 __pycache__/
 *.pyc
 
-# Virtual environment
-venv*/
-.venv/
 
-# FAISS index & pickle artifacts
-*.faiss
-*.pkl
+# Embedded Python runtime (DO NOT COMMIT)
+Installer/python/
+Installer/python/**
 
-# Logs
-*.csv
-logs/
+# Generated / runtime artifacts
+Installer/runtime_requirements_locked.txt
+
+venv310/
