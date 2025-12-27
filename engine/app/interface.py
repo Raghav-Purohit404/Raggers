@@ -7,6 +7,16 @@ from pathlib import Path
 from datetime import datetime
 import time
 
+# Detect PyInstaller frozen mode
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
+LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
+
 # ✅ Set Streamlit page config FIRST
 st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
 
@@ -14,42 +24,45 @@ st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
 #  PATH & IMPORT SETUP
 # ─────────────────────────────────────────────────────────────
 import subprocess
-import sys
-import os
 
-# Start file monitor in background if not already running
+# Start file monitor ONLY when not frozen (.exe) and not re-triggering
 def start_file_monitor():
-    monitor_script = os.path.join(os.path.dirname(__file__), "utils", "monitoring.py")
+    monitor_script = os.path.join(os.path.dirname(__file__), "..", "utils", "monitoring.py")
     try:
-        # Start in detached mode so it doesn't block Streamlit
         subprocess.Popen([sys.executable, monitor_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print("File monitor started.")
     except Exception as e:
         print(f"Could not start file monitor: {e}")
 
-start_file_monitor()
+# 🔧 APPLY FIX HERE
+if not getattr(sys, "frozen", False):  # ❌ don't run in packaged EXE
+    if "monitor_started" not in st.session_state:
+        start_file_monitor()
+        st.session_state["monitor_started"] = True
 
-# Add root repo to sys.path for module imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add project ROOT to sys.path
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append(ROOT_DIR)
 
-from ingestion import (
+# ✅ ABSOLUTE IMPORTS
+from engine.ingestion import (
     load_documents_from_files,
     load_documents_from_urls,
     get_vectorstore,
-    sync_to_backend_faiss  # 🔁 Incremental FAISS sync
+    sync_to_backend_faiss
 )
-from logger import log_query
-from llm_wrapper import get_llm_response  # ⬅️ use get_llm_response from wrapper
-from rag_pipeline import run_pipeline  # fallback LLM pipeline
 
-# Define paths
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
-LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
+from engine.utils.logger import log_query
+from engine.app.llm_wrapper import get_llm_response
+from engine.app.rag_pipeline import run_pipeline
+
+# Ensure log directory
+os.makedirs(LOG_DIR, exist_ok=True)
+if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
+    pd.DataFrame(columns=["Timestamp", "Query", "Response", "Feedback"]).to_csv(LOG_PATH, index=False)
 
 # ─────────────────────────────────────────────────────────────
-# ✅ Attempt to auto-load FAISS index on page load
+# AUTO LOAD INDEX
 # ─────────────────────────────────────────────────────────────
 if "vectorstore_ready" not in st.session_state:
     if os.path.exists(INDEX_PATH):
@@ -63,19 +76,10 @@ if "vectorstore_ready" not in st.session_state:
     else:
         st.session_state["vectorstore_ready"] = False
 
-# Ensure logging directory and file exist
-os.makedirs(LOG_DIR, exist_ok=True)
-if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
-    pd.DataFrame(columns=["Timestamp", "Query", "Response", "Feedback"]).to_csv(LOG_PATH, index=False)
-
 # ─────────────────────────────────────────────────────────────
-# PAGE LAYOUT
+# PAGE UI
 # ─────────────────────────────────────────────────────────────
 st.title("📚 PhiRAG: Chat with Files + Web + LLM")
-
-# ─────────────────────────────────────────────────────────────
-# INGESTION SECTION
-# ─────────────────────────────────────────────────────────────
 
 uploaded_files = st.file_uploader(
     "Upload PDF, TXT, DOCX, CSV, or MD files",
@@ -144,7 +148,7 @@ if process:
         st.text(summarize_file(f))
 
     documents = load_documents_from_files(file_paths) + load_documents_from_urls(urls)
-    st.session_state["frontend_docs"] = documents  # 💾 Save for syncing later
+    st.session_state["frontend_docs"] = documents
 
     if rebuild:
         if not documents:
@@ -163,32 +167,21 @@ if process:
             st.session_state["vectorstore_ready"] = False
 
 # ─────────────────────────────────────────────────────────────
-#  QUERY SECTION
+# QUERY SECTION
 # ─────────────────────────────────────────────────────────────
-
 query = st.text_input("💬 Ask a question:")
 
-# OPTIONAL: Query size selection
 st.markdown("### 🧠 (Optional) Choose answer depth:")
 col1, col2, col3, col4 = st.columns(4)
 answer_type = None
 
-if col1.button("Summary (100 words)"):
-    answer_type = "summary"
-elif col2.button("Overview (200 words)"):
-    answer_type = "overview"
-elif col3.button("Detailed (400 words)"):
-    answer_type = "detailed"
-elif col4.button("Deep Dive (600+ words)"):
-    answer_type = "deep_dive"
+if col1.button("Summary (100 words)"): answer_type = "summary"
+elif col2.button("Overview (200 words)"): answer_type = "overview"
+elif col3.button("Detailed (400 words)"): answer_type = "detailed"
+elif col4.button("Deep Dive (600+ words)"): answer_type = "deep_dive"
 
 def get_word_limit(answer_type):
-    return {
-        "summary": 100,
-        "overview": 200,
-        "detailed": 400,
-        "deep_dive": 600
-    }.get(answer_type, 150)
+    return {"summary": 100,"overview": 200,"detailed": 400,"deep_dive": 600}.get(answer_type, 150)
 
 run_query = st.button("🔍 Run Query")
 
@@ -200,30 +193,17 @@ if run_query and query:
         context = "\n\n".join(doc.page_content for doc in docs[:5])
 
         word_limit = get_word_limit(answer_type)
-        prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nStrictly answer in exactly {word_limit} words. Count your words."
+        prompt = (
+            f"Context:\n{context}\n\nQuestion: {query}\n\n"
+            f"Strictly answer in about {word_limit} words."
+        )
 
-        # ⏱️ Start timing
         start_time = time.time()
         answer = get_llm_response(prompt, word_limit)
         end_time = time.time()
-        response_time = round(end_time - start_time, 2)
-
-        total_file_size_bytes = sum(len(doc.page_content.encode('utf-8')) for doc in docs)
-        total_file_size_mb = round(total_file_size_bytes / (1024 * 1024), 2)
-        response_size_mb = round(len(answer.encode('utf-8')) / (1024 * 1024), 4)
 
         st.subheader("💬 Answer")
         st.write(answer)
-
-        with st.expander("📊 Response Metrics"):
-            st.markdown(f"**LLM Response Time:** `{response_time}` seconds")
-            st.markdown(f"**Total Size of Retrieved Documents:** `{total_file_size_mb}` MB")
-            st.markdown(f"**Size of Generated Response:** `{response_size_mb}` MB")
-
-        st.subheader("📌 Source Snippets")
-        for i, doc in enumerate(docs, start=1):
-            st.markdown(f"**Document {i}: {os.path.basename(doc.metadata.get('source', 'Unknown'))}**")
-            st.write(doc.page_content[:500] + "...")
 
         log_query(query, answer)
 
@@ -235,17 +215,11 @@ if run_query and query:
         st.warning("⚠️ No FAISS index found. Using LLM-only mode.")
         try:
             start_time = time.time()
-            result = run_pipeline(prompt=query)
+            result = run_pipeline(query)  # FIXED
             end_time = time.time()
-            response_time = round(end_time - start_time, 2)
-            response_size_mb = round(len(result.encode("utf-8")) / (1024 * 1024), 4)
 
             st.subheader("💬 Answer (LLM Only)")
             st.write(result)
-
-            with st.expander("📊 Response Metrics"):
-                st.markdown(f"**LLM Response Time:** `{response_time}` seconds")
-                st.markdown(f"**Size of Generated Response:** `{response_size_mb}` MB")
 
             log_query(query, result)
 
@@ -255,7 +229,6 @@ if run_query and query:
 # ─────────────────────────────────────────────────────────────
 # LOGGING UI
 # ─────────────────────────────────────────────────────────────
-
 df_logs = pd.read_csv(LOG_PATH)
 if "Feedback" not in df_logs.columns:
     df_logs["Feedback"] = ""
@@ -278,8 +251,7 @@ mode = st.radio("📤 Select log filter:", [
 
 data_to_download = df_logs.copy()
 
-if mode == "Download latest log":
-    data_to_download = df_logs.tail(1)
+if mode == "Download latest log": data_to_download = df_logs.tail(1)
 elif mode == "Download last N logs":
     n = st.number_input("Enter number of recent logs:", min_value=1, max_value=len(df_logs), step=1)
     data_to_download = df_logs.tail(n)
