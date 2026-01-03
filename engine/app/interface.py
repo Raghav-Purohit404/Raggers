@@ -1,50 +1,55 @@
+# ============================================================
+# CORE SAFETY IMPORTS (MUST BE FIRST)
+# ============================================================
 import sys
 import os
-import pandas as pd
-import streamlit as st
+import multiprocessing
+
+multiprocessing.freeze_support()
+
+# Disable Streamlit file watcher in EXE
+os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
+# ============================================================
+# STANDARD IMPORTS
+# ============================================================
+import time
 import tempfile
+import subprocess
 from pathlib import Path
 from datetime import datetime
-import time
 
-# Detect PyInstaller frozen mode
+import pandas as pd
+import streamlit as st
+
+# ============================================================
+# PATH RESOLUTION (SAFE FOR EXE + SOURCE)
+# ============================================================
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
+sys.path.append(ROOT_DIR)
+
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
 LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
 
-# ✅ Set Streamlit page config FIRST
-st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
+# ============================================================
+# PAGE CONFIG (MUST BE BEFORE UI)
+# ============================================================
+st.set_page_config(
+    page_title="PhiRAG: Chat with Your Knowledge",
+    layout="wide"
+)
 
-# ─────────────────────────────────────────────────────────────
-#  PATH & IMPORT SETUP
-# ─────────────────────────────────────────────────────────────
-import subprocess
-
-# Start file monitor ONLY when not frozen (.exe) and not re-triggering
-def start_file_monitor():
-    monitor_script = os.path.join(os.path.dirname(__file__), "..", "utils", "monitoring.py")
-    try:
-        subprocess.Popen([sys.executable, monitor_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("File monitor started.")
-    except Exception as e:
-        print(f"Could not start file monitor: {e}")
-
-# 🔧 APPLY FIX HERE
-if not getattr(sys, "frozen", False):  # ❌ don't run in packaged EXE
-    if "monitor_started" not in st.session_state:
-        start_file_monitor()
-        st.session_state["monitor_started"] = True
-
-# Add project ROOT to sys.path
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.append(ROOT_DIR)
-
-# ✅ ABSOLUTE IMPORTS
+# ============================================================
+# ABSOLUTE PROJECT IMPORTS
+# ============================================================
 from engine.ingestion import (
     load_documents_from_files,
     load_documents_from_urls,
@@ -56,35 +61,67 @@ from engine.utils.logger import log_query
 from engine.app.llm_wrapper import get_llm_response
 from engine.app.rag_pipeline import run_pipeline
 
-# Ensure log directory
+# ============================================================
+# ONE-TIME APP BOOT LOCK
+# ============================================================
+if "app_booted" not in st.session_state:
+    st.session_state.app_booted = True
+else:
+    st.stop()
+
+# ============================================================
+# LOG SETUP
+# ============================================================
 os.makedirs(LOG_DIR, exist_ok=True)
+
 if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
-    pd.DataFrame(columns=["Timestamp", "Query", "Response", "Feedback"]).to_csv(LOG_PATH, index=False)
+    pd.DataFrame(
+        columns=["Timestamp", "Query", "Response", "Feedback"]
+    ).to_csv(LOG_PATH, index=False)
 
-# ─────────────────────────────────────────────────────────────
-# AUTO LOAD INDEX
-# ─────────────────────────────────────────────────────────────
-if "vectorstore_ready" not in st.session_state:
+# ============================================================
+# FILE MONITOR (SOURCE MODE ONLY)
+# ============================================================
+def start_file_monitor():
+    try:
+        monitor_script = os.path.join(ROOT_DIR, "utils", "monitoring.py")
+        subprocess.Popen(
+            [sys.executable, monitor_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        pass
+
+if not getattr(sys, "frozen", False):
+    if "monitor_started" not in st.session_state:
+        start_file_monitor()
+        st.session_state.monitor_started = True
+
+# ============================================================
+# FAISS AUTO LOAD (ONCE)
+# ============================================================
+@st.cache_resource(show_spinner=False)
+def load_faiss_index():
     if os.path.exists(INDEX_PATH):
-        try:
-            db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
-            st.session_state["vectorstore_ready"] = True
-            st.success("✅ FAISS index auto-loaded.")
-        except Exception as e:
-            st.warning(f"⚠️ Error loading FAISS index: {e}")
-            st.session_state["vectorstore_ready"] = False
-    else:
-        st.session_state["vectorstore_ready"] = False
+        return get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+    return None
 
-# ─────────────────────────────────────────────────────────────
-# PAGE UI
-# ─────────────────────────────────────────────────────────────
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = load_faiss_index()
+
+# ============================================================
+# UI — TITLE
+# ============================================================
 st.title("📚 PhiRAG: Chat with Files + Web + LLM")
 
+# ============================================================
+# INGESTION UI
+# ============================================================
 uploaded_files = st.file_uploader(
     "Upload PDF, TXT, DOCX, CSV, or MD files",
     type=["pdf", "txt", "docx", "csv", "md"],
-    accept_multiple_files=True,
+    accept_multiple_files=True
 )
 
 folder_path = st.text_input("📁 Or enter a local folder path:")
@@ -92,19 +129,20 @@ url_input = st.text_area("🌐 Paste Web URLs (one per line):")
 rebuild = st.checkbox("🔄 Force rebuild FAISS index")
 
 if "frontend_docs" not in st.session_state:
-    st.session_state["frontend_docs"] = []
+    st.session_state.frontend_docs = []
 
-process = st.button("📥 Ingest Files and Links")
-
+# ============================================================
+# FILE HELPERS
+# ============================================================
 @st.cache_data(show_spinner=False)
-def save_uploaded_files(uploaded_files):
+def save_uploaded_files(files):
     temp_dir = tempfile.mkdtemp()
     paths = []
-    for file in uploaded_files:
-        path = os.path.join(temp_dir, file.name)
-        with open(path, "wb") as f:
-            f.write(file.read())
-        paths.append(path)
+    for f in files:
+        p = os.path.join(temp_dir, f.name)
+        with open(p, "wb") as out:
+            out.write(f.read())
+        paths.append(p)
     return paths
 
 @st.cache_data(show_spinner=False)
@@ -114,194 +152,140 @@ def summarize_file(path):
         if ext in [".txt", ".md"]:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-            return f"Lines: {len(lines)}, Preview: {lines[0][:100] if lines else 'Empty'}"
-        elif ext == ".csv":
+            return f"Lines: {len(lines)}"
+        if ext == ".csv":
             df = pd.read_csv(path)
             return f"Rows: {len(df)}, Columns: {len(df.columns)}"
-        elif ext == ".docx":
+        if ext == ".docx":
             import docx
-            doc = docx.Document(path)
-            return f"Paragraphs: {len(doc.paragraphs)}, First: {doc.paragraphs[0].text[:100] if doc.paragraphs else 'Empty'}"
-        elif ext == ".pdf":
+            d = docx.Document(path)
+            return f"Paragraphs: {len(d.paragraphs)}"
+        if ext == ".pdf":
             import fitz
-            doc = fitz.open(path)
-            return f"Pages: {len(doc)}, Preview: {doc[0].get_text()[:100] if len(doc) > 0 else 'Empty'}"
+            d = fitz.open(path)
+            return f"Pages: {len(d)}"
     except Exception as e:
         return f"Error: {e}"
 
-if process:
+# ============================================================
+# INGEST BUTTON
+# ============================================================
+if st.button("📥 Ingest Files and Links"):
     file_paths = []
 
     if uploaded_files:
         file_paths.extend(save_uploaded_files(uploaded_files))
 
     if folder_path and os.path.exists(folder_path):
-        for fname in os.listdir(folder_path):
-            if fname.lower().endswith((".pdf", ".txt", ".docx", ".csv", ".md")):
-                file_paths.append(os.path.join(folder_path, fname))
+        for f in os.listdir(folder_path):
+            if f.lower().endswith((".pdf", ".txt", ".docx", ".csv", ".md")):
+                file_paths.append(os.path.join(folder_path, f))
 
     urls = url_input.strip().splitlines() if url_input.strip() else []
 
     st.subheader("📋 File Summary Preview")
-    for f in file_paths:
-        st.markdown(f"**{os.path.basename(f)}**")
-        st.text(summarize_file(f))
+    for p in file_paths:
+        st.write(f"**{os.path.basename(p)}** — {summarize_file(p)}")
 
-    documents = load_documents_from_files(file_paths) + load_documents_from_urls(urls)
-    st.session_state["frontend_docs"] = documents
+    docs = load_documents_from_files(file_paths) + load_documents_from_urls(urls)
+    st.session_state.frontend_docs = docs
 
-    if rebuild:
-        if not documents:
-            st.error("❌ Upload files or provide valid URLs before rebuilding FAISS index.")
-        else:
-            db = get_vectorstore(documents, rebuild=True, save_path=INDEX_PATH)
-            st.success("✅ FAISS index rebuilt.")
-            st.session_state["vectorstore_ready"] = True
+    if rebuild and docs:
+        st.session_state.vectorstore = get_vectorstore(
+            docs, rebuild=True, save_path=INDEX_PATH
+        )
+        st.success("✅ FAISS index rebuilt.")
+    elif st.session_state.vectorstore:
+        st.success("✅ Existing FAISS index loaded.")
     else:
-        if os.path.exists(INDEX_PATH):
-            db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
-            st.success("✅ Loaded existing FAISS index.")
-            st.session_state["vectorstore_ready"] = True
-        else:
-            st.warning("⚠️ No saved FAISS index found. Please ingest documents.")
-            st.session_state["vectorstore_ready"] = False
+        st.warning("⚠️ No FAISS index available.")
 
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 # QUERY SECTION
-# ─────────────────────────────────────────────────────────────
+# ============================================================
 query = st.text_input("💬 Ask a question:")
 
-st.markdown("### 🧠 (Optional) Choose answer depth:")
-col1, col2, col3, col4 = st.columns(4)
-answer_type = None
+st.markdown("### 🧠 Choose answer depth")
+cols = st.columns(4)
+depth = None
 
-if col1.button("Summary (100 words)"): answer_type = "summary"
-elif col2.button("Overview (200 words)"): answer_type = "overview"
-elif col3.button("Detailed (400 words)"): answer_type = "detailed"
-elif col4.button("Deep Dive (600+ words)"): answer_type = "deep_dive"
+if cols[0].button("Summary (100)"): depth = "summary"
+if cols[1].button("Overview (200)"): depth = "overview"
+if cols[2].button("Detailed (400)"): depth = "detailed"
+if cols[3].button("Deep Dive (600)"): depth = "deep_dive"
 
-def get_word_limit(answer_type):
-    return {"summary": 100,"overview": 200,"detailed": 400,"deep_dive": 600}.get(answer_type, 150)
+def word_limit(t):
+    return {"summary": 100, "overview": 200, "detailed": 400, "deep_dive": 600}.get(t, 150)
 
-run_query = st.button("🔍 Run Query")
+# ============================================================
+# RUN QUERY
+# ============================================================
+if st.button("🔍 Run Query") and query:
+    vs = st.session_state.vectorstore
 
-if run_query and query:
-    if os.path.exists(INDEX_PATH) and st.session_state.get("vectorstore_ready", False):
-        db = get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
-        retriever = db.as_retriever(search_kwargs={"k": 5})
+    if vs:
+        retriever = vs.as_retriever(search_kwargs={"k": 5})
         docs = retriever.get_relevant_documents(query)
-        context = "\n\n".join(doc.page_content for doc in docs[:5])
+        context = "\n\n".join(d.page_content for d in docs)
 
-        word_limit = get_word_limit(answer_type)
         prompt = (
             f"Context:\n{context}\n\nQuestion: {query}\n\n"
-            f"Strictly answer in about {word_limit} words."
+            f"Answer in about {word_limit(depth)} words."
         )
 
-        start_time = time.time()
-        answer = get_llm_response(prompt, word_limit)
-        end_time = time.time()
-
+        answer = get_llm_response(prompt, word_limit(depth))
         st.subheader("💬 Answer")
         st.write(answer)
-
         log_query(query, answer)
 
-        if st.session_state.get("frontend_docs"):
-            sync_to_backend_faiss(st.session_state["frontend_docs"], backend_path="faiss_backend")
-            st.session_state["frontend_docs"] = []
+        if st.session_state.frontend_docs:
+            sync_to_backend_faiss(
+                st.session_state.frontend_docs,
+                backend_path="faiss_backend"
+            )
+            st.session_state.frontend_docs = []
 
     else:
-        st.warning("⚠️ No FAISS index found. Using LLM-only mode.")
-        try:
-            start_time = time.time()
-            result = run_pipeline(query)  # FIXED
-            end_time = time.time()
+        result = run_pipeline(query)
+        st.subheader("💬 Answer (LLM Only)")
+        st.write(result)
+        log_query(query, result)
 
-            st.subheader("💬 Answer (LLM Only)")
-            st.write(result)
-
-            log_query(query, result)
-
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-# ─────────────────────────────────────────────────────────────
-# LOGGING UI
-# ─────────────────────────────────────────────────────────────
-df_logs = pd.read_csv(LOG_PATH)
-if "Feedback" not in df_logs.columns:
-    df_logs["Feedback"] = ""
-
-if not df_logs.empty:
-    df_logs["Timestamp"] = pd.to_datetime(df_logs["Timestamp"], utc=True, errors='coerce')
-    df_logs.sort_values("Timestamp", inplace=True)
-
+# ============================================================
+# LOG VIEWER
+# ============================================================
 st.markdown("---")
 st.subheader("🗂️ Query Log Viewer & Export")
 
-search_term = st.text_input("🔎 Filter logs by keyword (in query or response):")
+df = pd.read_csv(LOG_PATH)
+df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
 
-mode = st.radio("📤 Select log filter:", [
-    "Download all logs",
-    "Download latest log",
-    "Download last N logs",
-    "Download logs by date range"
-])
+search = st.text_input("🔎 Filter logs")
+mode = st.radio(
+    "📤 Download mode",
+    ["All", "Latest", "Last N"]
+)
 
-data_to_download = df_logs.copy()
-
-if mode == "Download latest log": data_to_download = df_logs.tail(1)
-elif mode == "Download last N logs":
-    n = st.number_input("Enter number of recent logs:", min_value=1, max_value=len(df_logs), step=1)
-    data_to_download = df_logs.tail(n)
-elif mode == "Download logs by date range":
-    min_date = df_logs["Timestamp"].min().date()
-    max_date = df_logs["Timestamp"].max().date()
-    start_date = st.date_input("Start date", value=min_date)
-    end_date = st.date_input("End date", value=max_date)
-    mask = (df_logs["Timestamp"].dt.date >= start_date) & (df_logs["Timestamp"].dt.date <= end_date)
-    data_to_download = df_logs.loc[mask]
-
-if search_term.strip() and not data_to_download.empty:
-    keyword = search_term.lower()
-    data_to_download = data_to_download[
-        data_to_download["Query"].str.lower().str.contains(keyword, na=False) |
-        data_to_download["Response"].str.lower().str.contains(keyword, na=False)
+out = df.copy()
+if search:
+    out = out[
+        out["Query"].str.contains(search, case=False, na=False) |
+        out["Response"].str.contains(search, case=False, na=False)
     ]
 
-if data_to_download.empty:
-    st.warning("No logs match the selected filters.")
-else:
-    st.markdown("### 🖋️ Feedback and Preview")
-    feedback_updates = []
+if mode == "Latest":
+    out = out.tail(1)
+elif mode == "Last N":
+    n = st.number_input("N", 1, len(out), 5)
+    out = out.tail(n)
 
-    for i, row in data_to_download.iterrows():
-        st.markdown(f"**Timestamp:** {row['Timestamp']}")
-        st.markdown(f"**Query:** {row['Query']}")
-        st.markdown(f"**Response:** {row['Response']}")
-        feedback = st.radio(
-            f"Feedback for {row['Timestamp']}",
-            options=["", "👍", "👎"],
-            horizontal=True,
-            key=f"feedback_{i}",
-            index=["", "👍", "👎"].index(str(row.get("Feedback", ""))) if row.get("Feedback", "") in ["👍", "👎"] else 0
-        )
-        feedback_updates.append((row.name, feedback))
-        st.markdown("---")
+st.dataframe(out)
 
-    if st.button("💾 Save Feedback"):
-        for idx, fb in feedback_updates:
-            df_logs.at[idx, "Feedback"] = fb
-        df_logs.to_csv(LOG_PATH, index=False)
-        st.success("✅ Feedback saved.")
+csv = out.to_csv(index=False).encode("utf-8")
+st.download_button(
+    "📥 Download CSV",
+    csv,
+    file_name="query_logs.csv",
+    mime="text/csv"
+)
 
-    file_suffix = mode.lower().replace(" ", "_")
-    file_name = f"query_logs_{file_suffix}.csv"
-    csv_data = data_to_download.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Download Filtered Logs as CSV",
-        data=csv_data,
-        file_name=file_name,
-        mime="text/csv"
-    )

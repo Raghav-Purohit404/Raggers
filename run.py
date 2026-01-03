@@ -4,6 +4,12 @@ import subprocess
 import webbrowser
 import time
 import socket
+import multiprocessing
+
+# ------------------------------------------------------------
+# REQUIRED for PyInstaller + Windows (prevents respawn loop)
+# ------------------------------------------------------------
+multiprocessing.freeze_support()
 
 # ------------------------------------------------------------
 # Detect base directory (EXE vs normal run)
@@ -18,51 +24,64 @@ APP_URL = "http://localhost:8501"
 
 
 # ------------------------------------------------------------
-# Check if port 8501 is already in use (prevents multiple tabs)
+# Check if port 8501 is already in use
 # ------------------------------------------------------------
 def is_port_in_use(port=8501):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        return sock.connect_ex(("localhost", port)) == 0
+        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
 # ------------------------------------------------------------
-# Launch browser only if not already open
+# Open browser once Streamlit is ready
 # ------------------------------------------------------------
-def launch_browser_once():
-    print("⏳ Waiting for Streamlit to boot...")
-    for _ in range(15):  # wait up to ~7.5 seconds
+def launch_browser_once(timeout=20):
+    for _ in range(timeout * 2):
         if is_port_in_use(8501):
             webbrowser.open(APP_URL)
-            print(f"Browser opened: {APP_URL}")
             return
         time.sleep(0.5)
-    print(f"⚠️ Could not auto-open browser. Open manually: {APP_URL}")
 
 
 # ------------------------------------------------------------
-# MAIN PROCESS
+# MAIN
 # ------------------------------------------------------------
 def main():
-    # If server is already running → don't start again
+    # Prevent recursive launches
+    if os.environ.get("RAGGERS_STREAMLIT_RUNNING") == "1":
+        return
+
+    # If Streamlit already running, just open browser
     if is_port_in_use(8501):
-        print("🔁 Streamlit already running — opening browser...")
         webbrowser.open(APP_URL)
         return
 
-    print("Starting Ragging app...")
-    process = subprocess.Popen([
-        sys.executable, "-m", "streamlit", "run", INTERFACE_PATH,
-        "--server.headless", "true",
-        "--browser.serverAddress=localhost",
-        "--server.port=8501"
-    ])
+    os.environ["RAGGERS_STREAMLIT_RUNNING"] = "1"
 
-    # Open browser only once after server is ready
+    # Explicit streamlit invocation (CRITICAL)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            INTERFACE_PATH,
+            "--server.headless=true",
+            "--browser.serverAddress=localhost",
+            "--server.port=8501",
+            "--server.fileWatcherType=none",
+        ],
+        cwd=BASE_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
     launch_browser_once()
 
-    # Keep executable open until Streamlit exits
     process.wait()
 
 
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
 if __name__ == "__main__":
     main()
