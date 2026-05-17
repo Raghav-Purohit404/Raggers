@@ -16,6 +16,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
 DATA_FOLDER = os.path.join(PROJECT_ROOT, "Raggers", "backend_rag_data")
 INDEX_PATH = os.path.join(PROJECT_ROOT, "Raggers", "combined_faiss_index")
 
+
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx", ".ppt", ".pptx"]
 
 # ==============================

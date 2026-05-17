@@ -79,8 +79,7 @@ def _find_ingest_callable(app_pkg_path: Path):
     except Exception:
         pass
 
-    try:
-        import utils.backend_ingestion as backend
+
         for name in ("add_to_backend", "ingest", "ingest_file"):
             if hasattr(backend, name):
                 candidates.append(getattr(backend, name))

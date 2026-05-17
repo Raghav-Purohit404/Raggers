@@ -21,24 +21,51 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import pandas as pd
 import streamlit as st
 
 # ============================================================
 # PATH RESOLUTION (SAFE FOR EXE + SOURCE)
 # ============================================================
+
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(sys.executable)
 else:
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    BASE_DIR = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..")
+    )
 
 ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
-sys.path.append(ROOT_DIR)
+
+if ROOT_DIR not in sys.path:
+    sys.path.append(ROOT_DIR)
+
+# ============================================================
+# IMPORTS
+# ============================================================
+
+from ingestion import (
+    load_documents_from_files,
+    load_documents_from_urls,
+    get_vectorstore,
+    sync_to_backend_faiss
+)
+
+from engine.utils.logger import log_query
+from llm_wrapper import get_llm_response
+from rag_pipeline import run_pipeline
+
+# ============================================================
+# PATHS
+# ============================================================
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
 LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
-
 # ============================================================
 # PAGE CONFIG (MUST BE BEFORE UI)
 # ============================================================

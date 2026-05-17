@@ -1,100 +1,94 @@
-# phi_rag_gui.spec
-# FINAL – SAFE FOR STREAMLIT + FAISS + OLLAMA + 7ZIP SFX
+# -*- mode: python ; coding: utf-8 -*-
 
-block_cipher = None
+import sys
+import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# -------------------------------------------------------------------
+# Include entire folders (GUI/, app/, utils/)
+# -------------------------------------------------------------------
+
+datas = []
+binaries = []
+
+# Add GUI folder
+datas += collect_data_files('GUI', include_py_files=True)
+
+# Add app folder
+datas += collect_data_files('app', include_py_files=True)
+
+# Add utils folder
+datas += collect_data_files('utils', include_py_files=True)
+
+# Add FAISS index directory explicitly (important!)
+datas.append(('utils/combined_faiss_index/index.faiss', 'utils/combined_faiss_index'))
+datas.append(('utils/combined_faiss_index/index.pkl', 'utils/combined_faiss_index'))
+
+# CAUTION: If you add more data files (json, csv, etc), list them here
 
 
+# -------------------------------------------------------------------
+# Collect hidden imports automatically
+# -------------------------------------------------------------------
+hiddenimports = []
+hiddenimports += collect_submodules("app")
+hiddenimports += collect_submodules("utils")
+hiddenimports += collect_submodules("GUI")
+
+
+# -------------------------------------------------------------------
+# Standard PyInstaller Analysis
+# -------------------------------------------------------------------
 a = Analysis(
-    ['gui_main.py'],              # ENTRY POINT
-    pathex=['.'],
-    binaries=[],
-
-    datas=[
-        ('resources/icon.ico', 'resources'),
-        ('combined_faiss_index', 'combined_faiss_index'),
-        ('faiss_backend', 'faiss_backend'),
-        ('logs', 'logs'),
-    ],
-
-    hiddenimports=[
-        # 🔹 Streamlit internals
-        'streamlit',
-        'streamlit.runtime.scriptrunner',
-        'streamlit.runtime.state.session_state',
-
-        # 🔹 LangChain / RAG
-        'langchain',
-        'langchain_community',
-        'langchain_core',
-
-        # 🔹 Embeddings / FAISS
-        'faiss',
-        'faiss_cpu',
-        'sentence_transformers',
-
-        # 🔹 Torch
-        'torch',
-        'torch.cuda',
-
-        # 🔹 Ollama
-        'langchain_community.chat_models',
-        'ollama',
-
-        # 🔹 Your GUI modules
-        'gui.setup_wizard',
-        'gui.ollama_manager',
-        'gui.env_setup',
-        'gui.rag_setup',
-    ],
-
+    ['GUI/gui_main.py'],
+    pathex=[os.getcwd()],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
+    hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'tkinter',
-        'matplotlib',
-        'notebook',
-        'IPython',
-        'pytest'
-    ],
-
-    noarchive=True   # 🔴 CRITICAL: prevents recursive unpacking
+    excludes=[],
+    noarchive=False,
+    optimize=0,
 )
 
 
-pyz = PYZ(
-    a.pure,
-    a.zipped_data,
-    cipher=block_cipher
-)
+pyz = PYZ(a.pure)
 
 
+# -------------------------------------------------------------------
+# EXE configuration
+# -------------------------------------------------------------------
 exe = EXE(
     a.pure,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-
-    name='PhiRAG-GUI',
-
+    [],
+    exclude_binaries=True,
+    name='Raggers-GUI',
     debug=False,
-    console=False,
-
+    bootloader_ignore_signals=False,
     strip=False,
-    upx=False,                     # 🔴 disable UPX (avoids memory bugs)
-    disable_windowed_traceback=True,
-
-    icon='resources/icon.ico'
+    upx=True,
+    console=False,   # set to False because this is a GUI
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
 
 
+# -------------------------------------------------------------------
+# Final bundled application
+# -------------------------------------------------------------------
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
 
     strip=False,
-    upx=False,
-    name='PhiRAG-GUI'
+    upx=True,
+    upx_exclude=[],
+    name='Raggers-GUI',
 )
