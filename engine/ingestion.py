@@ -12,6 +12,7 @@ from langchain_community.document_loaders import (
     UnstructuredURLLoader
 )
 from langchain_core.documents import Document
+from runtime_paths import FAISS_BACKEND_DIR, FAISS_INDEX_DIR
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -119,6 +120,8 @@ def get_vectorstore(
     """
 
     embedder = get_embedder()
+    save_path = save_path or str(FAISS_INDEX_DIR)
+    load_path = load_path or str(FAISS_INDEX_DIR)
 
     # ── LOAD EXISTING ────────────────────────────────────────
     if not rebuild and load_path and os.path.exists(load_path):
@@ -133,11 +136,7 @@ def get_vectorstore(
         if not documents:
             raise ValueError("❌ Cannot rebuild FAISS index without documents.")
 
-        texts = [doc.page_content for doc in documents]
-        vectors = embedder.embed_documents(texts)
-        vectors = _apply_frontend_boost(vectors, documents)
-
-        db = FAISS.from_embeddings(texts, vectors, documents)
+        db = FAISS.from_documents(documents, embedder)
 
         if save_path:
             os.makedirs(save_path, exist_ok=True)
@@ -153,7 +152,7 @@ def get_vectorstore(
 
 def sync_to_backend_faiss(
     new_docs: List[Document],
-    backend_path: str = "faiss_backend"
+    backend_path: Optional[str] = None
 ):
     """
     Incrementally sync frontend docs to backend FAISS.
@@ -164,6 +163,7 @@ def sync_to_backend_faiss(
         return
 
     embedder = get_embedder()
+    backend_path = backend_path or str(FAISS_BACKEND_DIR)
 
     if os.path.exists(backend_path):
         db_backend = FAISS.load_local(
@@ -172,15 +172,16 @@ def sync_to_backend_faiss(
             allow_dangerous_deserialization=True
         )
     else:
-        db_backend = FAISS.from_documents([], embedder)
+        db_backend = None
 
     # Deduplicate by content hash (SAFE)
     existing_contents = set()
-    try:
-        for doc in db_backend.similarity_search(" ", k=1000):
-            existing_contents.add(doc.page_content)
-    except Exception:
-        pass
+    if db_backend is not None:
+        try:
+            for doc in db_backend.similarity_search(" ", k=1000):
+                existing_contents.add(doc.page_content)
+        except Exception:
+            pass
 
     unique_docs = [
         doc for doc in new_docs
@@ -190,11 +191,12 @@ def sync_to_backend_faiss(
     if not unique_docs:
         return
 
-    texts = [doc.page_content for doc in unique_docs]
-    vectors = embedder.embed_documents(texts)
-    vectors = _apply_frontend_boost(vectors, unique_docs)
+    if db_backend is None:
+        db_backend = FAISS.from_documents(unique_docs, embedder)
+    else:
+        db_backend.add_documents(unique_docs)
 
-    db_backend.add_embeddings(texts, vectors, unique_docs)
+    os.makedirs(backend_path, exist_ok=True)
     db_backend.save_local(backend_path)
 
 # ─────────────────────────────────────────────────────────────

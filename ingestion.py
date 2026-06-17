@@ -2,6 +2,7 @@ import torch
 import os
 from typing import List, Optional
 import numpy as np
+from runtime_paths import FAISS_BACKEND_DIR, FAISS_INDEX_DIR
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -58,10 +59,12 @@ def load_documents_from_urls(urls: List[str]):
 def get_vectorstore(
     documents: List[Document] = [],
     rebuild: bool = False,
-    save_path: Optional[str] = "faiss_index",
-    load_path: Optional[str] = "faiss_index"
+    save_path: Optional[str] = None,
+    load_path: Optional[str] = None
 ):
     embedder = get_embedder()
+    save_path = save_path or str(FAISS_INDEX_DIR)
+    load_path = load_path or str(FAISS_INDEX_DIR)
 
     def apply_boost(vectors, docs):
         # Apply small boost to frontend docs to bias them
@@ -73,10 +76,7 @@ def get_vectorstore(
     if rebuild:
         if not documents:
             raise ValueError("No documents provided to build new FAISS index.")
-        texts = [doc.page_content for doc in documents]
-        vectors = embedder.embed_documents(texts)
-        vectors = apply_boost(vectors, documents)
-        db = FAISS.from_embeddings(texts, vectors, documents)
+        db = FAISS.from_documents(documents, embedder)
         if save_path:
             db.save_local(save_path)
             print(f"✅ FAISS index built and saved at '{save_path}'")
@@ -89,26 +89,26 @@ def get_vectorstore(
 
     raise ValueError("No saved FAISS index found and no documents provided to rebuild.")
 
-def sync_to_backend_faiss(new_docs: List[Document], backend_path: str = "faiss_backend"):
+def sync_to_backend_faiss(new_docs: List[Document], backend_path: Optional[str] = None):
     embedder = get_embedder()
+    backend_path = backend_path or str(FAISS_BACKEND_DIR)
 
     if os.path.exists(backend_path):
         db_backend = FAISS.load_local(backend_path, embedder, allow_dangerous_deserialization=True)
     else:
-        db_backend = FAISS.from_documents([], embedder)
+        db_backend = None
 
-    existing_texts = {doc.page_content for doc in db_backend.similarity_search("", k=1000)}
+    existing_texts = set()
+    if db_backend is not None:
+        existing_texts = {doc.page_content for doc in db_backend.similarity_search("", k=1000)}
     unique_new_docs = [doc for doc in new_docs if doc.page_content not in existing_texts]
 
     if unique_new_docs:
-        texts = [doc.page_content for doc in unique_new_docs]
-        vectors = embedder.embed_documents(texts)
-
-        for i, doc in enumerate(unique_new_docs):
-            if doc.metadata.get("source_type") == "frontend":
-                vectors[i] = vectors[i] * 1.05
-
-        db_backend.add_embeddings(texts, vectors, unique_new_docs)
+        if db_backend is None:
+            db_backend = FAISS.from_documents(unique_new_docs, embedder)
+        else:
+            db_backend.add_documents(unique_new_docs)
+        os.makedirs(backend_path, exist_ok=True)
         db_backend.save_local(backend_path)
         print(f"✅ Synced {len(unique_new_docs)} docs to backend FAISS index at '{backend_path}'")
     else:

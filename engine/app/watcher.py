@@ -2,23 +2,25 @@ import sys
 import os
 import time
 from pathlib import Path
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR, ensure_runtime_environment
 
 # ===============================
 # ⚙️ Dynamic Path Setup
 # ===============================
 # Add project root to PYTHONPATH
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # Raggers/utils/
-PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))      # Project root (Chatbot/)
-sys.path.append(PROJECT_ROOT)
+ensure_runtime_environment()
+PROJECT_ROOT = str(ROOT_DIR)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 # Import backend ingestion dynamically
-from utils.backend_ingestion import run_background_ingestion
+from engine.utils.backend_ingestion import run_background_ingestion
 
 # ===============================
 # 🗂️ Folder & URLs to Watch
 # ===============================
 # Folder inside repo — automatically portable
-PDF_DIR = os.path.join(PROJECT_ROOT, "Raggers", "backend_rag_data")
+PDF_DIR = str(DATA_DIR / "backend_rag_data")
 
 # Example URLs for web ingestion
 URLS = [
@@ -27,7 +29,7 @@ URLS = [
 ]
 
 # FAISS index location (shared with backend_ingestion)
-INDEX_PATH = os.path.join(PROJECT_ROOT, "Raggers", "combined_faiss_index")
+INDEX_PATH = str(FAISS_INDEX_DIR)
 
 # ===============================
 # 🚀 Watcher Loop

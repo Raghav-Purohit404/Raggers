@@ -24,20 +24,23 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-# ============================================================
-# PATH RESOLUTION (SAFE FOR EXE + SOURCE)
-# ============================================================
-if getattr(sys, "frozen", False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+from runtime_paths import (
+    DATA_DIR,
+    FAISS_BACKEND_DIR,
+    FAISS_INDEX_DIR,
+    IS_FROZEN,
+    LOG_DIR,
+    QUERY_LOG,
+    ROOT_DIR,
+    ensure_runtime_environment,
+)
 
-ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
-sys.path.append(ROOT_DIR)
+ensure_runtime_environment()
+os.chdir(ROOT_DIR)
 
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-INDEX_PATH = os.path.join(BASE_DIR, "combined_faiss_index")
-LOG_PATH = os.path.join(LOG_DIR, "query_logs.csv")
+LOG_PATH = str(QUERY_LOG)
+INDEX_PATH = str(FAISS_INDEX_DIR)
+BACKEND_INDEX_PATH = str(FAISS_BACKEND_DIR)
 
 # ============================================================
 # PAGE CONFIG (MUST BE BEFORE UI)
@@ -62,17 +65,10 @@ from engine.app.llm_wrapper import get_llm_response
 from engine.app.rag_pipeline import run_pipeline
 
 # ============================================================
-# ONE-TIME APP BOOT LOCK
-# ============================================================
-if "app_booted" not in st.session_state:
-    st.session_state.app_booted = True
-else:
-    st.stop()
-
-# ============================================================
 # LOG SETUP
 # ============================================================
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
     pd.DataFrame(
@@ -84,16 +80,18 @@ if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
 # ============================================================
 def start_file_monitor():
     try:
-        monitor_script = os.path.join(ROOT_DIR, "utils", "monitoring.py")
+        monitor_script = ROOT_DIR / "engine" / "utils" / "monitoring.py"
+        if not monitor_script.exists():
+            return
         subprocess.Popen(
-            [sys.executable, monitor_script],
+            [sys.executable, str(monitor_script)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
     except Exception:
         pass
 
-if not getattr(sys, "frozen", False):
+if not IS_FROZEN:
     if "monitor_started" not in st.session_state:
         start_file_monitor()
         st.session_state.monitor_started = True
@@ -241,7 +239,7 @@ if st.button("🔍 Run Query") and query:
         if st.session_state.frontend_docs:
             sync_to_backend_faiss(
                 st.session_state.frontend_docs,
-                backend_path="faiss_backend"
+                backend_path=BACKEND_INDEX_PATH
             )
             st.session_state.frontend_docs = []
 

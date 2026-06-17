@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 import requests
 import argparse
 import logging
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR
 
 
 # ========================
@@ -28,12 +29,12 @@ logger = logging.getLogger(__name__)
 # BASE_DIR → Raggers/utils/
 BASE_DIR = Path(__file__).resolve().parent
 # PROJECT_ROOT → Chatbot/
-PROJECT_ROOT = BASE_DIR.parent.parent
+PROJECT_ROOT = ROOT_DIR
 
 # Important folders (auto-adjust when repo is cloned anywhere)
 HASH_STORE_PATH = BASE_DIR / "indexed_hashes.pkl"
-INDEX_PATH = PROJECT_ROOT / "combined_faiss_index"
-DEFAULT_DOC_FOLDER = PROJECT_ROOT / "Raggers" / "backend_rag_data"
+INDEX_PATH = FAISS_INDEX_DIR
+DEFAULT_DOC_FOLDER = DATA_DIR / "backend_rag_data"
 
 # ========================
 # 🔧 Constants

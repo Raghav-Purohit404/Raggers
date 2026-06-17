@@ -7,11 +7,13 @@ from pathlib import Path
 import traceback
 import subprocess
 
+from runtime_paths import RESOURCE_DIR, ROOT_DIR, ensure_runtime_environment
+
 # ---------------------------------------------------------
 # MAKE GUI A PACKAGE-SAFE IMPORT ROOT
 # ---------------------------------------------------------
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ensure_runtime_environment()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -32,11 +34,9 @@ AUTO_LAUNCH_INTERFACE = True
 def resource_path(relative):
     """
     Returns absolute path to resource bundled by PyInstaller.
-    Inside EXE, resources are placed in sys._MEIPASS.
+    Inside the packaged app, runtime resources live under _internal.
     """
-    if hasattr(sys, "_MEIPASS"):
-        return Path(os.path.join(sys._MEIPASS, relative))
-    return Path(relative)
+    return RESOURCE_DIR / relative
 
 
 # ---------------------------------------------------------
@@ -72,7 +72,7 @@ def _find_ingest_callable(app_pkg_path: Path):
     candidates = []
 
     try:
-        import app.ingestion as ui
+        import engine.ingestion as ui
         for name in ("ingest_document", "ingest_file", "ingest"):
             if hasattr(ui, name):
                 candidates.append(getattr(ui, name))
@@ -80,7 +80,7 @@ def _find_ingest_callable(app_pkg_path: Path):
         pass
 
     try:
-        import utils.backend_ingestion as backend
+        import engine.utils.backend_ingestion as backend
         for name in ("add_to_backend", "ingest", "ingest_file"):
             if hasattr(backend, name):
                 candidates.append(getattr(backend, name))

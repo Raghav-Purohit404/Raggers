@@ -3,8 +3,16 @@ import sys
 import json
 from pathlib import Path
 
+from runtime_paths import ENGINE_DIR, ROOT_DIR, bundled_python, ensure_runtime_environment, IS_FROZEN
 
-ENGINE_PATH = Path(__file__).resolve().parents[1] / "engine" / "engine_main.py"
+ensure_runtime_environment()
+ENGINE_PATH = ENGINE_DIR / "engine_main.py"
+
+
+def python_runtime() -> str:
+    if IS_FROZEN:
+        return str(bundled_python())
+    return sys.executable
 
 
 def run_engine_query(query: str) -> dict:
@@ -12,7 +20,7 @@ def run_engine_query(query: str) -> dict:
     Runs the engine as a subprocess and returns parsed JSON.
     """
     cmd = [
-        sys.executable,
+        python_runtime(),
         str(ENGINE_PATH),
         "--query",
         query
@@ -21,7 +29,8 @@ def run_engine_query(query: str) -> dict:
     result = subprocess.run(
         cmd,
         capture_output=True,
-        text=True
+        text=True,
+        cwd=str(ROOT_DIR)
     )
 
     if result.returncode != 0:

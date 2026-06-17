@@ -1,8 +1,6 @@
-from langchain_community.chat_models import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
+from engine.app.llm_wrapper import get_llm
 
-# Initialize the same model used in llm_wrapper for consistency
-llm = ChatOllama(model="phi3:3.8b")
 
 def run_pipeline(query: str, max_words: int = 150) -> str:
     """
@@ -15,6 +13,7 @@ def run_pipeline(query: str, max_words: int = 150) -> str:
         return "⚠️ No query provided to pipeline."
 
     try:
+        llm = get_llm()
         system_prompt = (
             f"You are a helpful assistant. Answer clearly and in about {max_words} words. "
             f"If the question is personal like 'who are you', explain you are an AI model."

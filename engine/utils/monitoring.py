@@ -8,16 +8,18 @@ from datetime import datetime
 import schedule
 import subprocess
 import threading
+import sys
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR, bundled_python, IS_FROZEN
 
 # ===============================
 # 🔧 DYNAMIC PATH SETUP
 # ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # → Raggers/utils/
-PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))      # → Chatbot/
-VENV_PYTHON = os.path.join(PROJECT_ROOT, "venv310", "Scripts", "python.exe")
+PROJECT_ROOT = str(ROOT_DIR)
+PYTHON_RUNTIME = str(bundled_python()) if IS_FROZEN else sys.executable
 
 # Folder to watch for new/modified files
-WATCH_FOLDERS = [os.path.join(PROJECT_ROOT, "backend_rag_data")]
+WATCH_FOLDERS = [str(DATA_DIR / "backend_rag_data")]
 
 # CSV paths (auto-created if not found)
 LOG_FILE = os.path.join(BASE_DIR, "file_change_log.csv")
@@ -27,7 +29,7 @@ HASH_TRACK_FILE = os.path.join(BASE_DIR, "last_hashes.csv")
 BACKEND_SCRIPT = os.path.join(BASE_DIR, "backend_ingestion.py")
 
 # FAISS index path (consistent across repo)
-INDEX_PATH = os.path.join(PROJECT_ROOT, "combined_faiss_index")
+INDEX_PATH = str(FAISS_INDEX_DIR)
 
 # ===============================
 # 🧾 INITIAL SETUP
@@ -84,7 +86,7 @@ def save_hashes(hashes):
 def trigger_ingestion():
     """Run backend ingestion for updated files."""
     cmd = [
-        VENV_PYTHON,
+        PYTHON_RUNTIME,
         BACKEND_SCRIPT,
         "--folder", WATCH_FOLDERS[0],
         "--benchmark"
