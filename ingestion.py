@@ -70,7 +70,7 @@ def get_vectorstore(
         # Apply small boost to frontend docs to bias them
         for i, doc in enumerate(docs):
             if doc.metadata.get("source_type") == "frontend":
-                vectors[i] = vectors[i] * 1.05  # 5% boost
+               vectors[i] = [x * 1.05 for x in vectors[i]] # 5% boost
         return vectors
 
     if rebuild:
@@ -80,6 +80,7 @@ def get_vectorstore(
         if save_path:
             db.save_local(save_path)
             print(f"✅ FAISS index built and saved at '{save_path}'")
+
         return db
 
     if load_path and os.path.exists(load_path):
@@ -94,7 +95,11 @@ def sync_to_backend_faiss(new_docs: List[Document], backend_path: Optional[str] 
     backend_path = backend_path or str(FAISS_BACKEND_DIR)
 
     if os.path.exists(backend_path):
-        db_backend = FAISS.load_local(backend_path, embedder, allow_dangerous_deserialization=True)
+        db_backend = FAISS.load_local(
+            backend_path,
+            embedder,
+            allow_dangerous_deserialization=True
+        )
     else:
         db_backend = None
 
@@ -110,7 +115,9 @@ def sync_to_backend_faiss(new_docs: List[Document], backend_path: Optional[str] 
             db_backend.add_documents(unique_new_docs)
         os.makedirs(backend_path, exist_ok=True)
         db_backend.save_local(backend_path)
+
         print(f"✅ Synced {len(unique_new_docs)} docs to backend FAISS index at '{backend_path}'")
+
     else:
         print("ℹ️ No new documents to sync to backend.")
 
