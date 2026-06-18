@@ -17,7 +17,6 @@ from runtime_paths import (
     ROOT_DIR,
     STARTUP_LOG,
     STREAMLIT_APP,
-    bundled_python,
     display_path,
     ensure_runtime_environment,
     missing_runtime_paths,
@@ -94,9 +93,6 @@ def validate_runtime() -> None:
 
     if IS_FROZEN and not INTERNAL_DIR.exists():
         raise RuntimeError("Missing _internal runtime directory.")
-
-    if IS_FROZEN and not bundled_python().exists():
-        raise RuntimeError("Missing embedded Python runtime: _internal/python.exe")
 
 
 def run_streamlit_in_process(port: int = DEFAULT_PORT) -> None:

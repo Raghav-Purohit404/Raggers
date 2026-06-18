@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -28,7 +29,40 @@ RESOURCE_DIR = resource_dir()
 ENGINE_DIR = RESOURCE_DIR / "engine"
 GUI_DIR = RESOURCE_DIR / "GUI"
 DATA_DIR = RESOURCE_DIR / "data"
-LOG_DIR = APP_DIR / "logs"
+
+
+def is_writable_dir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_test"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def log_dir() -> Path:
+    local_logs = APP_DIR / "logs"
+    if is_writable_dir(local_logs):
+        return local_logs
+
+    candidates = []
+    for env_name in ("LOCALAPPDATA", "APPDATA", "TEMP", "TMP"):
+        env_value = os.getenv(env_name)
+        if env_value:
+            candidates.append(Path(env_value) / APP_NAME / "logs")
+    candidates.append(Path(tempfile.gettempdir()) / APP_NAME / "logs")
+    candidates.append(Path.home() / f".{APP_NAME.lower()}" / "logs")
+
+    for candidate in candidates:
+        if is_writable_dir(candidate):
+            return candidate
+
+    return local_logs
+
+
+LOG_DIR = log_dir()
 
 STREAMLIT_APP = ENGINE_DIR / "app" / "interface.py"
 STARTUP_LOG = LOG_DIR / "startup.log"
@@ -78,7 +112,7 @@ def required_runtime_paths() -> list[Path]:
         STREAMLIT_APP,
     ]
     if IS_FROZEN:
-        required.extend([INTERNAL_DIR, bundled_python()])
+        required.append(INTERNAL_DIR)
     return required
 
 

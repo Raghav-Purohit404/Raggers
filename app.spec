@@ -1,103 +1,113 @@
-# app.spec  (DROP-IN REPLACEMENT)
+# -*- mode: python ; coding: utf-8 -*-
 
-import os
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+import sys
+from pathlib import Path
 
-# ─────────────────────────────────────────────
-# PROJECT ROOT
-# ─────────────────────────────────────────────
-project_root = os.path.dirname(os.path.abspath(SPECPATH))
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
-# ─────────────────────────────────────────────
-# DATA DIRECTORIES (RUNTIME REQUIRED)
-# ─────────────────────────────────────────────
+
+sys.setrecursionlimit(sys.getrecursionlimit() * 5)
+
+project_root = Path(SPECPATH).resolve()
+
+
+def add_tree(name):
+    path = project_root / name
+    return [(str(path), name)] if path.exists() else []
+
+
 datas = []
+datas += add_tree("engine")
+datas += add_tree("GUI")
+datas += add_tree("data")
+datas += add_tree("faiss_backend")
+datas += collect_data_files("streamlit")
+datas += collect_data_files("sentence_transformers")
+datas += collect_data_files("transformers")
 
-required_dirs = [
-    "data",
-    "faiss_index",
-    "combined_faiss_index",
-    "logs",
-    "utils",
-    "app",
-    "engine",
-    "backend_rag_data",
+for package in (
+    "streamlit",
+    "sentence-transformers",
+    "sentence_transformers",
+    "transformers",
+    "torch",
+    "faiss-cpu",
+    "langchain",
+    "langchain-community",
+    "langchain-core",
+    "langchain-huggingface",
+):
+    try:
+        datas += copy_metadata(package)
+    except Exception:
+        pass
+
+
+hiddenimports = [
+    "streamlit.web.cli",
+    "engine.app.interface",
+    "engine.ingestion",
+    "engine.app.retriever",
+    "engine.app.rag_pipeline",
+    "engine.app.llm_wrapper",
+    "engine.utils.backend_ingestion",
+    "GUI.gui_main",
+    "GUI.config_manager",
+    "GUI.setup_wizard",
+    "GUI.engine_client",
+    "GUI.ollama_manager",
+    "sentence_transformers",
+    "transformers",
+    "torch",
+    "faiss",
+    "PIL.Image",
 ]
 
-for d in required_dirs:
-    full = os.path.join(project_root, d)
-    if os.path.exists(full):
-        datas.append((full, d))
-
-# ─────────────────────────────────────────────
-# INCLUDE GUI PY FILES AS DATA (NOT IMPORTS)
-# ─────────────────────────────────────────────
-gui_dir = os.path.join(project_root, "GUI")
-
-for root, _, files in os.walk(gui_dir):
-    for f in files:
-        if f.endswith(".py"):
-            src = os.path.join(root, f)
-            rel = os.path.relpath(src, project_root)
-            datas.append((src, os.path.dirname(rel)))
-
-# ─────────────────────────────────────────────
-# HIDDEN IMPORTS (DYNAMIC LOADERS)
-# ─────────────────────────────────────────────
-hiddenimports = []
-
-hiddenimports += collect_submodules("streamlit")
-hiddenimports += collect_submodules("langchain")
-hiddenimports += collect_submodules("langchain_community")
-hiddenimports += collect_submodules("faiss")
-hiddenimports += collect_submodules("sentence_transformers")
-hiddenimports += collect_submodules("torch")
-hiddenimports += collect_submodules("engine")
-hiddenimports += collect_submodules("app")
-hiddenimports += collect_submodules("GUI")
-
-# ─────────────────────────────────────────────
-# ANALYSIS
-# ─────────────────────────────────────────────
-block_cipher = None
 
 a = Analysis(
-    ["GUI/gui_main.py"],          # 🔑 SINGLE ENTRY POINT
-    pathex=[project_root],
+    ["run.py"],
+    pathex=[str(project_root)],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
+    hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
-    noarchive=True,               # 🔑 PREVENTS SELF-REEXEC LOOP
-    cipher=block_cipher,
+    excludes=[
+        "venv",
+        "venv310",
+        "tests",
+        "torch.distributed",
+        "torch.utils.tensorboard",
+        "tensorboard",
+        "tensorflow",
+        "tensorflow_intel",
+        "jax",
+        "dask",
+        "matplotlib.tests",
+        "pandas.tests",
+        "scipy.tests",
+        "sklearn.tests",
+    ],
+    noarchive=False,
+    optimize=0,
 )
+pyz = PYZ(a.pure)
 
-# ─────────────────────────────────────────────
-# PYZ
-# ─────────────────────────────────────────────
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-# ─────────────────────────────────────────────
-# EXE
-# ─────────────────────────────────────────────
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Raggers",
+    name="run",
     debug=False,
-    bootloader_ignore_signals=True,
+    bootloader_ignore_signals=False,
     strip=False,
-    upx=False,                    # 🔑 safer for Streamlit
+    upx=False,
     console=False,
+    disable_windowed_traceback=False,
 )
 
-# ─────────────────────────────────────────────
-# COLLECT
-# ─────────────────────────────────────────────
 coll = COLLECT(
     exe,
     a.binaries,

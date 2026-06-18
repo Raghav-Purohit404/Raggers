@@ -5,8 +5,6 @@ import time
 from pathlib import Path
 
 import traceback
-import subprocess
-
 from runtime_paths import RESOURCE_DIR, ROOT_DIR, ensure_runtime_environment
 
 # ---------------------------------------------------------
@@ -114,7 +112,7 @@ def start_watchdog_thread(cfg: AppConfig, poll_interval=3):
     watch = Path(cfg.watchdog_path)
     watch.mkdir(parents=True, exist_ok=True)
 
-    app_dir = resource_path("app")
+    app_dir = resource_path("engine/app")
     ingest_fn = _find_ingest_callable(app_dir)
 
     if ingest_fn:

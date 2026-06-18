@@ -6,27 +6,24 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from datetime import datetime
 import schedule
-import subprocess
 import threading
-import sys
-from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR, bundled_python, IS_FROZEN
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, LOG_DIR, ROOT_DIR
 
 # ===============================
 # 🔧 DYNAMIC PATH SETUP
 # ===============================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # → Raggers/utils/
 PROJECT_ROOT = str(ROOT_DIR)
-PYTHON_RUNTIME = str(bundled_python()) if IS_FROZEN else sys.executable
 
 # Folder to watch for new/modified files
 WATCH_FOLDERS = [str(DATA_DIR / "backend_rag_data")]
 
 # CSV paths (auto-created if not found)
-LOG_FILE = os.path.join(BASE_DIR, "file_change_log.csv")
-HASH_TRACK_FILE = os.path.join(BASE_DIR, "last_hashes.csv")
+LOG_FILE = str(LOG_DIR / "file_change_log.csv")
+HASH_TRACK_FILE = str(DATA_DIR / "last_hashes.csv")
 
 # Backend ingestion script (same repo, utils folder)
-BACKEND_SCRIPT = os.path.join(BASE_DIR, "backend_ingestion.py")
+BACKEND_SCRIPT = None
 
 # FAISS index path (consistent across repo)
 INDEX_PATH = str(FAISS_INDEX_DIR)
@@ -85,6 +82,22 @@ def save_hashes(hashes):
 # ===============================
 def trigger_ingestion():
     """Run backend ingestion for updated files."""
+    try:
+        from engine.utils.backend_ingestion import run_background_ingestion
+
+        print("\nRunning ingestion in-process:")
+        print("   ", WATCH_FOLDERS[0])
+        run_background_ingestion(
+            pdf_dir=WATCH_FOLDERS[0],
+            index_path=INDEX_PATH,
+            benchmark=True,
+        )
+        print("Backend ingestion triggered successfully.")
+    except Exception as e:
+        print("Backend ingestion failed.")
+        print("Error Output:", e)
+    return
+
     cmd = [
         PYTHON_RUNTIME,
         BACKEND_SCRIPT,
@@ -96,10 +109,10 @@ def trigger_ingestion():
     print("   ", " ".join(cmd))
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        raise RuntimeError("unreachable legacy path")
         print("✅ Backend ingestion triggered successfully.")
         print(result.stdout)
-    except subprocess.CalledProcessError as e:
+    except RuntimeError as e:
         print("❌ Backend ingestion failed.")
         print("Error Output:", e.stderr)
 
