@@ -1,4 +1,6 @@
 import multiprocessing
+multiprocessing.freeze_support()
+
 import os
 import socket
 import sys
@@ -21,8 +23,6 @@ from runtime_paths import (
     ensure_runtime_environment,
     missing_runtime_paths,
 )
-
-multiprocessing.freeze_support()
 
 DEFAULT_PORT = 8501
 APP_URL = f"http://127.0.0.1:{DEFAULT_PORT}"
@@ -147,4 +147,16 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        # If we are spawned as a python command/module execution or multiprocessing fork, exit quietly to prevent recursion loops
+        if any(arg in sys.argv for arg in ("-c", "-m", "--multiprocessing-fork")):
+            sys.exit(0)
+            
+        # Check if we are a Streamlit run command
+        if "run" in sys.argv or "streamlit" in sys.argv or any("interface.py" in arg for arg in sys.argv):
+            from streamlit.web import cli as streamlit_cli
+            ensure_runtime_environment()
+            os.chdir(ROOT_DIR)
+            sys.exit(streamlit_cli.main())
+            
     raise SystemExit(main())

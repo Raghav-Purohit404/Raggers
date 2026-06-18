@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 import requests
 import argparse
 import logging
-from runtime_paths import DATA_DIR, FAISS_INDEX_DIR
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, EMBEDDING_MODEL_DIR, BACKEND_RAG_DATA_DIR
 
 
 # ========================
@@ -34,7 +34,7 @@ PROJECT_ROOT = DATA_DIR.parent
 # Important folders (auto-adjust when repo is cloned anywhere)
 HASH_STORE_PATH = DATA_DIR / "indexed_hashes.pkl"
 INDEX_PATH = FAISS_INDEX_DIR
-DEFAULT_DOC_FOLDER = DATA_DIR / "backend_rag_data"
+DEFAULT_DOC_FOLDER = BACKEND_RAG_DATA_DIR
 
 # ========================
 # 🔧 Constants
@@ -100,7 +100,7 @@ def load_new_files(folder: Path, processed: set) -> List[Document]:
     return docs
 
 
-def load_web(urls: List[str], url_cache: dict) -> List[Document]:
+def load_web(urls: List[str], processed: set) -> List[Document]:
     docs = []
     for url in urls:
         try:
@@ -111,10 +111,25 @@ def load_web(urls: List[str], url_cache: dict) -> List[Document]:
             text = soup.get_text(separator="\n")
             cleaned = "\n".join([line.strip() for line in text.splitlines() if line.strip()])
             hash_val = hash_content(cleaned)
-            if url_cache.get(url) == hash_val:
-                logger.info(f"🔄 No change in {url}, skipping...")
-                continue
-            url_cache[url] = hash_val
+            
+            # Find if there is an existing cached hash for this url in processed
+            prefix = f"url:{url}:"
+            old_entry = None
+            for entry in processed:
+                if isinstance(entry, str) and entry.startswith(prefix):
+                    old_entry = entry
+                    break
+            
+            if old_entry is not None:
+                old_hash = old_entry.split(":", 2)[2]
+                if old_hash == hash_val:
+                    logger.info(f"🔄 No change in {url}, skipping...")
+                    continue
+                # Hash changed, remove old entry from set
+                processed.remove(old_entry)
+            
+            # Add new entry to set
+            processed.add(f"url:{url}:{hash_val}")
             doc = Document(page_content=cleaned, metadata={"source": url, "ingested_by": "backend"})
             docs.append(doc)
         except Exception as e:
@@ -141,9 +156,10 @@ def deduplicate_chunks(chunks: List[Document]) -> List[Document]:
 
 def update_index(chunks: List[Document], index_path=INDEX_PATH):
     logger.info(f"🗂️ Updating FAISS index at: {index_path}")
-    embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+    model_path = str(EMBEDDING_MODEL_DIR) if EMBEDDING_MODEL_DIR.exists() else "sentence-transformers/all-MiniLM-L6-v2"
+    embedder = HuggingFaceEmbeddings(model_name=model_path)
 
-    if Path(index_path).exists():
+    if Path(index_path).exists() and (Path(index_path) / "index.faiss").exists():
         index = FAISS.load_local(index_path, embedder, allow_dangerous_deserialization=True)
         index.add_documents(chunks)
     else:
@@ -174,11 +190,10 @@ def run_background_ingestion(pdf_dir: Path = DEFAULT_DOC_FOLDER, urls: List[str]
         logger.error(f"❌ Folder does not exist: {pdf_dir}")
         return
 
-    processed_files = set()
-    url_cache = {}
+    processed_files = indexed_hashes
 
     new_file_docs = load_new_files(pdf_dir, processed_files)
-    new_web_docs = load_web(urls, url_cache)
+    new_web_docs = load_web(urls, processed_files)
 
     all_docs = new_file_docs + new_web_docs
     if not all_docs:

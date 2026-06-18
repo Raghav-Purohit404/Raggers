@@ -38,9 +38,10 @@ from runtime_paths import (
 ensure_runtime_environment()
 os.chdir(ROOT_DIR)
 
-LOG_PATH = str(QUERY_LOG)
+# Centralized runtime paths are automatically config-aware
 INDEX_PATH = str(FAISS_INDEX_DIR)
 BACKEND_INDEX_PATH = str(FAISS_BACKEND_DIR)
+LOG_PATH = str(QUERY_LOG)
 
 # ============================================================
 # PAGE CONFIG (MUST BE BEFORE UI)
@@ -67,7 +68,7 @@ from engine.app.rag_pipeline import run_pipeline
 # ============================================================
 # LOG SETUP
 # ============================================================
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
@@ -83,10 +84,13 @@ def start_file_monitor():
         monitor_script = ROOT_DIR / "engine" / "utils" / "monitoring.py"
         if not monitor_script.exists():
             return
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ROOT_DIR) + os.pathsep + env.get("PYTHONPATH", "")
         subprocess.Popen(
             [sys.executable, str(monitor_script)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            env=env
         )
     except Exception:
         pass
@@ -101,8 +105,11 @@ if not IS_FROZEN:
 # ============================================================
 @st.cache_resource(show_spinner=False)
 def load_faiss_index():
-    if os.path.exists(INDEX_PATH):
-        return get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+    if INDEX_PATH and os.path.exists(INDEX_PATH) and os.path.exists(os.path.join(INDEX_PATH, "index.faiss")):
+        try:
+            return get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+        except Exception:
+            pass
     return None
 
 if "vectorstore" not in st.session_state:
@@ -188,11 +195,11 @@ if st.button("📥 Ingest Files and Links"):
     docs = load_documents_from_files(file_paths) + load_documents_from_urls(urls)
     st.session_state.frontend_docs = docs
 
-    if rebuild and docs:
+    if (rebuild or not st.session_state.vectorstore) and docs:
         st.session_state.vectorstore = get_vectorstore(
             docs, rebuild=True, save_path=INDEX_PATH
         )
-        st.success("✅ FAISS index rebuilt.")
+        st.success("✅ FAISS index built.")
     elif st.session_state.vectorstore:
         st.success("✅ Existing FAISS index loaded.")
     else:

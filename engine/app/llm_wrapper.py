@@ -14,13 +14,13 @@ _llm_instance = None
 _llm_lock = threading.Lock()
 
 
-def _is_ollama_available() -> bool:
+def _is_ollama_available(host: str = "127.0.0.1", port: int = 11434) -> bool:
     """
     Lightweight check to avoid blocking calls during EXE startup.
     """
     try:
         import socket
-        with socket.create_connection(("127.0.0.1", 11434), timeout=1):
+        with socket.create_connection((host, port), timeout=1):
             return True
     except Exception:
         return False
@@ -43,15 +43,43 @@ def get_llm() -> ChatOllama:
         if _llm_instance is not None:
             return _llm_instance
 
-        if not _is_ollama_available():
+        # Load user configuration dynamically if available
+        cfg = None
+        try:
+            from GUI.config_manager import AppConfig
+            cfg = AppConfig.load()
+        except Exception:
+            pass
+
+        model_name = "phi3:3.8b"
+        base_url = "http://127.0.0.1:11434"
+        if cfg:
+            if cfg.ollama_model:
+                model_name = cfg.ollama_model
+            if cfg.ollama_url:
+                base_url = cfg.ollama_url
+
+        # Parse host and port for availability check
+        host, port = "127.0.0.1", 11434
+        if base_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(base_url)
+                host = parsed.hostname or "127.0.0.1"
+                port = parsed.port or 11434
+            except Exception:
+                pass
+
+        if not _is_ollama_available(host, port):
             raise RuntimeError(
-                "Ollama server is not running on port 11434. "
+                f"Ollama server is not running at {host}:{port}. "
                 "Please start Ollama before querying."
             )
 
         # 🔒 SINGLE, SAFE INITIALIZATION
         _llm_instance = ChatOllama(
-            model="phi3:3.8b",
+            model=model_name,
+            base_url=base_url,
             temperature=0.7,
             timeout=120
         )

@@ -2,7 +2,7 @@ import sys
 import os
 import time
 from pathlib import Path
-from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR, ensure_runtime_environment
+from runtime_paths import BACKEND_RAG_DATA_DIR, FAISS_INDEX_DIR, ROOT_DIR, ensure_runtime_environment
 
 # ===============================
 # ⚙️ Dynamic Path Setup
@@ -19,10 +19,8 @@ from engine.utils.backend_ingestion import run_background_ingestion
 # ===============================
 # 🗂️ Folder & URLs to Watch
 # ===============================
-# Folder inside repo — automatically portable
-PDF_DIR = str(DATA_DIR / "backend_rag_data")
+PDF_DIR = str(BACKEND_RAG_DATA_DIR)
 
-# Example URLs for web ingestion
 URLS = [
     "https://en.wikipedia.org/wiki/Natural_language_processing",
     "https://en.wikipedia.org/wiki/Deep_learning"

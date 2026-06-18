@@ -31,6 +31,30 @@ GUI_DIR = RESOURCE_DIR / "GUI"
 DATA_DIR = RESOURCE_DIR / "data"
 
 
+def get_config_paths() -> dict:
+    try:
+        appdata = os.getenv("APPDATA") or str(Path.home() / ".config")
+        cfg_path = Path(appdata) / "PhiRAG" / "config.json"
+        if cfg_path.exists():
+            import json
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            root = Path(data.get("root", "")).resolve() if data.get("root") else None
+            if root:
+                return {
+                    "faiss_index": Path(data.get("faiss_path", root / "faiss_index")).resolve(),
+                    "faiss_backend": (root / "faiss_backend").resolve(),
+                    "logs": Path(data.get("logs_path", root / "logs")).resolve(),
+                    "watchdog": Path(data.get("watchdog_path", root / "watchdog")).resolve(),
+                }
+    except Exception:
+        pass
+    return {}
+
+
+CFG_PATHS = get_config_paths()
+
+
 def is_writable_dir(path: Path) -> bool:
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -62,14 +86,15 @@ def log_dir() -> Path:
     return local_logs
 
 
-LOG_DIR = log_dir()
-
+LOG_DIR = CFG_PATHS.get("logs") or log_dir()
 STREAMLIT_APP = ENGINE_DIR / "app" / "interface.py"
 STARTUP_LOG = LOG_DIR / "startup.log"
 ERROR_LOG = LOG_DIR / "error.log"
 QUERY_LOG = LOG_DIR / "query_logs.csv"
-FAISS_INDEX_DIR = DATA_DIR / "combined_faiss_index"
-FAISS_BACKEND_DIR = DATA_DIR / "faiss_backend"
+
+FAISS_INDEX_DIR = CFG_PATHS.get("faiss_index") or (DATA_DIR / "combined_faiss_index")
+FAISS_BACKEND_DIR = CFG_PATHS.get("faiss_backend") or (DATA_DIR / "faiss_backend")
+BACKEND_RAG_DATA_DIR = CFG_PATHS.get("watchdog") or (DATA_DIR / "backend_rag_data")
 EMBEDDING_MODEL_DIR = DATA_DIR / "models" / "all-MiniLM-L6-v2"
 
 
@@ -92,8 +117,13 @@ def ensure_runtime_environment() -> None:
     os.environ.setdefault("RAGGERS_LOG_DIR", str(LOG_DIR))
     os.environ.setdefault("RAGGERS_FAISS_INDEX", str(FAISS_INDEX_DIR))
     os.environ.setdefault("RAGGERS_FAISS_BACKEND", str(FAISS_BACKEND_DIR))
+    os.environ.setdefault("RAGGERS_BACKEND_RAG_DATA", str(BACKEND_RAG_DATA_DIR))
     os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
     os.environ.setdefault("STREAMLIT_GLOBAL_DEVELOPMENT_MODE", "false")
+    os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
+    os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -102,6 +132,7 @@ def ensure_runtime_environment() -> None:
         os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(DATA_DIR / "models"))
         os.environ.setdefault("HF_HOME", str(DATA_DIR / "models"))
         os.environ.setdefault("TRANSFORMERS_CACHE", str(DATA_DIR / "models"))
+
 
 
 def required_runtime_paths() -> list[Path]:

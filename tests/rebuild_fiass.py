@@ -1,21 +1,24 @@
 import os
 import sys
+import shutil
 from pathlib import Path
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyMuPDFLoader, UnstructuredFileLoader
 from pptx import Presentation
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# ==============================
-# ⚙️ Path Configuration
-# ==============================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
+# Add project root to sys.path
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-DATA_FOLDER = os.path.join(PROJECT_ROOT, "Raggers", "backend_rag_data")
-INDEX_PATH = os.path.join(PROJECT_ROOT, "Raggers", "combined_faiss_index")
+from runtime_paths import FAISS_INDEX_DIR, BACKEND_RAG_DATA_DIR, ensure_runtime_environment
+ensure_runtime_environment()
 
+from engine.ingestion import get_embedder
+
+DATA_FOLDER = str(BACKEND_RAG_DATA_DIR)
+INDEX_PATH = str(FAISS_INDEX_DIR)
 
 SUPPORTED_EXTENSIONS = [".pdf", ".txt", ".md", ".csv", ".docx", ".ppt", ".pptx"]
 
@@ -48,7 +51,8 @@ def load_documents(folder: str):
                     loader = UnstructuredFileLoader(str(file))
                     pages = loader.load()
                 for doc in pages:
-                    chunks = splitter.split_text(doc["page_content"])
+                    content = doc.page_content if hasattr(doc, "page_content") else (doc.get("page_content") if isinstance(doc, dict) else str(doc))
+                    chunks = splitter.split_text(content)
                     docs.extend(chunks)
             except Exception as e:
                 print(f"❌ Failed to load {file.name}: {e}")
@@ -67,11 +71,13 @@ def rebuild_faiss():
         print("⚠️ No documents found to index.")
         return
 
-    embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+    embedder = get_embedder()
 
     if os.path.exists(INDEX_PATH):
-        import shutil
-        shutil.rmtree(INDEX_PATH)
+        try:
+            shutil.rmtree(INDEX_PATH)
+        except Exception:
+            pass
 
     os.makedirs(INDEX_PATH, exist_ok=True)
     index = FAISS.from_texts(docs, embedder)

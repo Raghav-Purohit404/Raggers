@@ -2,72 +2,131 @@
 
 import sys
 from pathlib import Path
-
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
-
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata, collect_dynamic_libs
 
 sys.setrecursionlimit(sys.getrecursionlimit() * 5)
 
 project_root = Path(SPECPATH).resolve()
 
-
 def add_tree(name):
     path = project_root / name
     return [(str(path), name)] if path.exists() else []
-
 
 datas = []
 datas += add_tree("engine")
 datas += add_tree("GUI")
 datas += add_tree("data")
-datas += add_tree("faiss_backend")
 datas += collect_data_files("streamlit")
 datas += collect_data_files("sentence_transformers")
 datas += collect_data_files("transformers")
+datas += collect_data_files("tzdata")
+datas += collect_data_files("huggingface_hub")
+datas += collect_data_files("tokenizers")
+datas += collect_data_files("langchain")
+datas += collect_data_files("langchain_community")
+datas += collect_data_files("langchain_core")
 
 for package in (
     "streamlit",
-    "sentence-transformers",
     "sentence_transformers",
     "transformers",
     "torch",
-    "faiss-cpu",
+    "faiss",
     "langchain",
-    "langchain-community",
-    "langchain-core",
-    "langchain-huggingface",
+    "langchain_community",
+    "langchain_core",
+    "langchain_huggingface",
+    "tzdata",
+    "certifi",
+    "huggingface_hub",
+    "tokenizers",
+    "accelerate",
+    "tqdm",
 ):
     try:
         datas += copy_metadata(package)
     except Exception:
         pass
 
-
-hiddenimports = [
-    "streamlit.web.cli",
-    "engine.app.interface",
-    "engine.ingestion",
-    "engine.app.retriever",
-    "engine.app.rag_pipeline",
-    "engine.app.llm_wrapper",
-    "engine.utils.backend_ingestion",
-    "GUI.gui_main",
-    "GUI.config_manager",
-    "GUI.setup_wizard",
-    "GUI.engine_client",
-    "GUI.ollama_manager",
-    "sentence_transformers",
-    "transformers",
-    "torch",
+hiddenimports = []
+for package in (
+    "engine",
+    "GUI",
+    "streamlit",
+    "streamlit.web",
+    "streamlit.runtime",
+    "langchain",
+    "langchain_community",
+    "langchain_core",
+    "langchain_huggingface",
     "faiss",
-    "PIL.Image",
+    "sentence_transformers",
+    "sklearn",
+    "tokenizers",
+    "torch",
+    "transformers",
+    "unstructured",
+    "watchdog",
+    "PyQt6",
+    "huggingface_hub",
+    "accelerate",
+):
+    try:
+        hiddenimports += collect_submodules(package)
+    except Exception:
+        hiddenimports.append(package)
+
+# Add explicit hidden imports that are known to be problematic
+hiddenimports += [
+    "streamlit.runtime.scriptrunner.magic_funcs",
+    "streamlit.runtime.scriptrunner",
+    "streamlit.runtime.state",
+    "streamlit.runtime.state.session_state",
+    "streamlit.runtime.websocket",
+    "streamlit.runtime.caching",
+    "streamlit.runtime.caching.cache_data_api",
+    "streamlit.runtime.caching.cache_resource_api",
+    "streamlit.runtime.secrets",
+    "streamlit.runtime.pages_manager",
+    "streamlit.runtime.uploaded_file_manager",
+    "streamlit.runtime.connection_factory",
+    "streamlit.runtime.stats",
+    "streamlit.runtime.media_file_manager",
+    "streamlit.runtime.memory_uploaded_file_manager",
+    "streamlit.runtime.forward_msg_queue",
+    "streamlit.runtime.runtime",
+    "docx",
+    "fitz",
+    "pandas",
+    "pyarrow",
+    "pypdf",
+    "requests",
+    "bs4",
+    "pptx",
+    "watchdog",
+    "schedule",
+    "PyQt6.QtCore",
+    "PyQt6.QtWidgets",
+    "streamlit.web.cli",
+    "torch._C",
+    "runtime_paths",
 ]
 
+# Ensure we remove duplicates
+hiddenimports = sorted(list(set(hiddenimports)))
+
+# Collect dynamic libs if any
+binaries = []
+for package in ("faiss", "numpy", "pyarrow", "torch", "tokenizers"):
+    try:
+        binaries += collect_dynamic_libs(package)
+    except Exception:
+        pass
 
 a = Analysis(
     ["run.py"],
     pathex=[str(project_root)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -77,7 +136,6 @@ a = Analysis(
         "venv",
         "venv310",
         "tests",
-        "torch.distributed",
         "torch.utils.tensorboard",
         "tensorboard",
         "tensorflow",
@@ -88,6 +146,11 @@ a = Analysis(
         "pandas.tests",
         "scipy.tests",
         "sklearn.tests",
+        "IPython",
+        "jupyter",
+        "matplotlib",
+        "notebook",
+        "pytest",
     ],
     noarchive=False,
     optimize=0,
@@ -99,13 +162,17 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="run",
+    name="PhiRAG-GUI",  # matches installer.nsi EXEFILENAME
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=False,      # Set to False so it's a silent UI launcher
     disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
 
 coll = COLLECT(
@@ -115,5 +182,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="Raggers",
+    name="PhiRAG-GUI",  # matches installer.nsi folder
 )

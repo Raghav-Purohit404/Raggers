@@ -1,16 +1,30 @@
+import os
+import sys
 from pathlib import Path
 from collections import defaultdict
-import os
-
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
+
+# Add project root to sys.path
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from runtime_paths import FAISS_INDEX_DIR, ensure_runtime_environment
+ensure_runtime_environment()
+
+from engine.ingestion import get_embedder
 
 # Path to your FAISS index
-INDEX_PATH = Path("combined_faiss_index")
+INDEX_PATH = FAISS_INDEX_DIR
 
 # Load embedder and FAISS index
-embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
-vectorstore = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
+embedder = get_embedder()
+
+if not INDEX_PATH.exists() or not (INDEX_PATH / "index.faiss").exists():
+    print(f"❌ FAISS index not found at: {INDEX_PATH}")
+    sys.exit(1)
+
+vectorstore = FAISS.load_local(str(INDEX_PATH), embedder, allow_dangerous_deserialization=True)
 
 # Data structures to hold stats
 chunk_count_by_source = defaultdict(int)

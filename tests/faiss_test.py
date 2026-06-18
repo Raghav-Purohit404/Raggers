@@ -1,26 +1,31 @@
 import os
+import sys
+from pathlib import Path
 from collections import defaultdict
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 
-# ===============================
-# 🔧 Dynamic path setup
-# ===============================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # → Raggers/tests/
-PROJECT_ROOT = PROJECT_ROOT = os.path.dirname(BASE_DIR)
-     # → Chatbot/
-INDEX_PATH = os.path.join(PROJECT_ROOT, "combined_faiss_index")  # consistent with backend_ingestion.py
+# Add project root to sys.path
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from runtime_paths import FAISS_INDEX_DIR, ensure_runtime_environment
+ensure_runtime_environment()
+
+from engine.ingestion import get_embedder
+
+INDEX_PATH = str(FAISS_INDEX_DIR)
 
 # ===============================
 # 🧠 Load FAISS index
 # ===============================
 print(f"\n📁 Loading FAISS index from: {INDEX_PATH}")
 
-if not os.path.exists(INDEX_PATH):
+if not os.path.exists(INDEX_PATH) or not os.path.exists(os.path.join(INDEX_PATH, "index.faiss")):
     print("❌ FAISS index folder not found. Run backend_ingestion.py first.")
     exit(1)
 
-embedder = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
+embedder = get_embedder()
 try:
     index = FAISS.load_local(INDEX_PATH, embedder, allow_dangerous_deserialization=True)
 except Exception as e:

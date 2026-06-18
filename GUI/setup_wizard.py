@@ -99,7 +99,15 @@ class SetupWizard(QWidget):
             return
 
         root_p = Path(root).resolve()
-        created = ensure_tree(root_p)
+        try:
+            created = ensure_tree(root_p)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error Creating Folder Structure",
+                f"Failed to create the required folders under '{root}':\n{e}\n\nPlease choose a different folder or run as administrator."
+            )
+            return
 
         model_choice = self.model_combo.currentText().strip()
         if model_choice.startswith("(none detected)"):

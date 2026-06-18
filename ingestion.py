@@ -83,7 +83,7 @@ def get_vectorstore(
 
         return db
 
-    if load_path and os.path.exists(load_path):
+    if load_path and os.path.exists(load_path) and os.path.exists(os.path.join(load_path, "index.faiss")):
         db = FAISS.load_local(load_path, embedder, allow_dangerous_deserialization=True)
         print(f"📦 Loaded FAISS index from '{load_path}'")
         return db
@@ -94,7 +94,7 @@ def sync_to_backend_faiss(new_docs: List[Document], backend_path: Optional[str] 
     embedder = get_embedder()
     backend_path = backend_path or str(FAISS_BACKEND_DIR)
 
-    if os.path.exists(backend_path):
+    if os.path.exists(backend_path) and os.path.exists(os.path.join(backend_path, "index.faiss")):
         db_backend = FAISS.load_local(
             backend_path,
             embedder,

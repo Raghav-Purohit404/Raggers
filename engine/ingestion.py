@@ -12,7 +12,7 @@ from langchain_community.document_loaders import (
     UnstructuredURLLoader
 )
 from langchain_core.documents import Document
-from runtime_paths import FAISS_BACKEND_DIR, FAISS_INDEX_DIR
+from runtime_paths import FAISS_BACKEND_DIR, FAISS_INDEX_DIR, EMBEDDING_MODEL_DIR
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -34,8 +34,9 @@ def get_embedder():
     Prevents RAM explosion & recursive model reloads.
     """
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    model_path = str(EMBEDDING_MODEL_DIR) if EMBEDDING_MODEL_DIR.exists() else "sentence-transformers/all-MiniLM-L6-v2"
     return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_name=model_path,
         model_kwargs={"device": device}
     )
 
@@ -124,7 +125,7 @@ def get_vectorstore(
     load_path = load_path or str(FAISS_INDEX_DIR)
 
     # ── LOAD EXISTING ────────────────────────────────────────
-    if not rebuild and load_path and os.path.exists(load_path):
+    if not rebuild and load_path and os.path.exists(load_path) and os.path.exists(os.path.join(load_path, "index.faiss")):
         return FAISS.load_local(
             load_path,
             embedder,
@@ -165,7 +166,7 @@ def sync_to_backend_faiss(
     embedder = get_embedder()
     backend_path = backend_path or str(FAISS_BACKEND_DIR)
 
-    if os.path.exists(backend_path):
+    if os.path.exists(backend_path) and os.path.exists(os.path.join(backend_path, "index.faiss")):
         db_backend = FAISS.load_local(
             backend_path,
             embedder,

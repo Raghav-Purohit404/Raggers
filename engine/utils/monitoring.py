@@ -7,7 +7,8 @@ from watchdog.events import FileSystemEventHandler
 from datetime import datetime
 import schedule
 import threading
-from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, LOG_DIR, ROOT_DIR
+from runtime_paths import DATA_DIR, FAISS_INDEX_DIR, LOG_DIR, ROOT_DIR, BACKEND_RAG_DATA_DIR, ensure_runtime_environment
+ensure_runtime_environment()
 
 # ===============================
 # 🔧 DYNAMIC PATH SETUP
@@ -16,7 +17,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))          # → Raggers/uti
 PROJECT_ROOT = str(ROOT_DIR)
 
 # Folder to watch for new/modified files
-WATCH_FOLDERS = [str(DATA_DIR / "backend_rag_data")]
+WATCH_FOLDERS = [str(BACKEND_RAG_DATA_DIR)]
 
 # CSV paths (auto-created if not found)
 LOG_FILE = str(LOG_DIR / "file_change_log.csv")

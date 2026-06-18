@@ -5,7 +5,7 @@ import webbrowser
 from typing import List
 
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download/windows"
-DEFAULT_MODEL = "phi3.8b"
+DEFAULT_MODEL = "phi3:3.8b"
 
 def is_ollama_installed(cmd="ollama") -> bool:
     return shutil.which(cmd) is not None
