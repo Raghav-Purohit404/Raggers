@@ -43,6 +43,7 @@ for package in (
     "unstructured",
     "watchdog",
     "schedule",
+    "PyQt6",
 ):
     datas += safe_collect_data_files(package)
 
@@ -70,6 +71,7 @@ for package in (
     "python-docx",
     "python-pptx",
     "beautifulsoup4",
+    "PyQt6",
 ):
     datas += safe_copy_metadata(package)
 
@@ -148,7 +150,7 @@ hiddenimports = sorted(list(set(hiddenimports)))
 
 # Collect dynamic libs if any
 binaries = []
-for package in ("faiss", "numpy", "pyarrow", "torch", "tokenizers"):
+for package in ("faiss", "numpy", "pyarrow", "torch", "tokenizers", "PyQt6"):
     try:
         binaries += collect_dynamic_libs(package)
     except Exception:

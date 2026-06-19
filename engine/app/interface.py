@@ -15,11 +15,11 @@ os.environ["MKL_NUM_THREADS"] = "1"
 
 from runtime_paths import (
     DATA_DIR,
-    FAISS_BACKEND_DIR,
     FAISS_INDEX_DIR,
     LOG_DIR,
     QUERY_LOG,
     ROOT_DIR,
+    BACKEND_RAG_DATA_DIR,
     ensure_runtime_environment,
 )
 
@@ -27,7 +27,6 @@ ensure_runtime_environment()
 os.chdir(ROOT_DIR)
 
 INDEX_PATH = str(FAISS_INDEX_DIR)
-BACKEND_INDEX_PATH = str(FAISS_BACKEND_DIR)
 LOG_PATH = str(QUERY_LOG)
 
 st.set_page_config(page_title="PhiRAG: Chat with Your Knowledge", layout="wide")
@@ -41,7 +40,12 @@ from engine.ingestion import (
     sync_to_backend_faiss,
 )
 from engine.utils.logger import log_query
-from engine.utils.monitoring import start_monitoring_background
+from engine.utils.monitoring import configure_watchdog_folder, start_monitoring_background
+
+try:
+    from GUI.config_manager import AppConfig
+except Exception:
+    AppConfig = None
 
 Path(LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,8 +61,43 @@ if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
     pd.DataFrame(columns=["Timestamp", "Query", "Response", "Feedback"]).to_csv(LOG_PATH, index=False)
 
 
+def load_app_config():
+    if AppConfig is None:
+        return None
+    try:
+        return AppConfig.load()
+    except Exception as exc:
+        diagnostics_logger.exception("Unable to load app config: %s", exc)
+        return None
+
+
+def active_index_path() -> str:
+    cfg = load_app_config()
+    return str(cfg.faiss_path) if cfg else INDEX_PATH
+
+
+def active_watchdog_path() -> str:
+    cfg = load_app_config()
+    return str(cfg.watchdog_path) if cfg else str(BACKEND_RAG_DATA_DIR)
+
+
+def save_watchdog_path(path: str) -> bool:
+    if AppConfig is None:
+        return False
+    cfg = load_app_config()
+    if cfg is None:
+        return False
+    target = Path(path).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    cfg.data["watchdog_path"] = str(target)
+    cfg.data["backend_ingestion_path"] = str(target)
+    cfg.save()
+    return True
+
+
 def start_file_monitor():
     try:
+        configure_watchdog_folder(Path(active_watchdog_path()), ingest_existing=False, index_path=Path(active_index_path()))
         started = start_monitoring_background()
         diagnostics_logger.info("Monitoring started=%s", started)
     except Exception as exc:
@@ -71,36 +110,67 @@ if "monitor_started" not in st.session_state:
 
 
 @st.cache_resource(show_spinner=False)
-def load_faiss_index():
-    if os.path.exists(os.path.join(INDEX_PATH, "index.faiss")):
+def load_faiss_index(index_path: str):
+    if os.path.exists(os.path.join(index_path, "index.faiss")):
         try:
-            return get_vectorstore([], rebuild=False, load_path=INDEX_PATH)
+            return get_vectorstore([], rebuild=False, load_path=index_path, save_path=index_path)
         except Exception as exc:
-            diagnostics_logger.exception("Unable to load FAISS index at %s: %s", INDEX_PATH, exc)
+            diagnostics_logger.exception("Unable to load FAISS index at %s: %s", index_path, exc)
     return None
 
 
-def index_mtime():
-    index_file = os.path.join(INDEX_PATH, "index.faiss")
+def index_mtime(index_path: str = None):
+    index_file = os.path.join(index_path or active_index_path(), "index.faiss")
     return os.path.getmtime(index_file) if os.path.exists(index_file) else 0
 
 
 def refresh_vectorstore_if_changed():
-    current_mtime = index_mtime()
-    if current_mtime and current_mtime != st.session_state.get("vectorstore_mtime"):
+    index_path = active_index_path()
+    current_mtime = index_mtime(index_path)
+    if (
+        current_mtime
+        and (
+            current_mtime != st.session_state.get("vectorstore_mtime")
+            or index_path != st.session_state.get("vectorstore_path")
+        )
+    ):
         load_faiss_index.clear()
-        st.session_state.vectorstore = load_faiss_index()
+        st.session_state.vectorstore = load_faiss_index(index_path)
         st.session_state.vectorstore_mtime = current_mtime
+        st.session_state.vectorstore_path = index_path
 
 
 if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = load_faiss_index()
-    st.session_state.vectorstore_mtime = index_mtime()
+    st.session_state.vectorstore_path = active_index_path()
+    st.session_state.vectorstore = load_faiss_index(st.session_state.vectorstore_path)
+    st.session_state.vectorstore_mtime = index_mtime(st.session_state.vectorstore_path)
 
 if "frontend_docs" not in st.session_state:
     st.session_state.frontend_docs = []
 
-st.title("PhiRAG: Chat with Files + Web + LLM")
+title_col, watchdog_col = st.columns([3, 2])
+with title_col:
+    st.title("PhiRAG: Chat with Files + Web + LLM")
+with watchdog_col:
+    st.caption("Watchdog folder")
+    proposed_watchdog = st.text_input(
+        "Watchdog folder",
+        value=active_watchdog_path(),
+        label_visibility="collapsed",
+        key="watchdog_folder_input",
+    )
+    action_cols = st.columns(2)
+    if action_cols[0].button("Save Watchdog"):
+        if save_watchdog_path(proposed_watchdog):
+            configure_watchdog_folder(Path(proposed_watchdog), ingest_existing=True, index_path=Path(active_index_path()))
+            load_faiss_index.clear()
+            st.success("Watchdog folder saved and indexing started.")
+        else:
+            st.error("Setup configuration was not found. Run the setup wizard first.")
+    if action_cols[1].button("Ingest Watchdog Now"):
+        configure_watchdog_folder(Path(proposed_watchdog), ingest_existing=True, index_path=Path(active_index_path()))
+        load_faiss_index.clear()
+        st.info("Watchdog ingestion started.")
 
 uploaded_files = st.file_uploader(
     "Upload PDF, TXT, DOCX, CSV, or MD files",
@@ -173,11 +243,12 @@ if st.button("Ingest Files and Links"):
         st.session_state.vectorstore = get_vectorstore(
             docs,
             rebuild=rebuild,
-            save_path=INDEX_PATH,
-            load_path=INDEX_PATH,
+            save_path=active_index_path(),
+            load_path=active_index_path(),
         )
-        st.session_state.vectorstore_mtime = index_mtime()
-        sync_to_backend_faiss(docs, backend_path=BACKEND_INDEX_PATH)
+        st.session_state.vectorstore_path = active_index_path()
+        st.session_state.vectorstore_mtime = index_mtime(st.session_state.vectorstore_path)
+        sync_to_backend_faiss(docs, backend_path=active_index_path())
         st.session_state.frontend_docs = []
         st.success("Files and links indexed.")
     elif st.session_state.vectorstore:

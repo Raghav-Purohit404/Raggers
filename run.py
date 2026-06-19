@@ -22,10 +22,47 @@ from runtime_paths import (
     display_path,
     ensure_runtime_environment,
     missing_runtime_paths,
+    reload_runtime_config,
 )
 
 DEFAULT_PORT = 8501
 APP_URL = f"http://127.0.0.1:{DEFAULT_PORT}"
+
+
+def ensure_setup_wizard_completed() -> None:
+    try:
+        from GUI.config_manager import AppConfig, ensure_tree
+        from GUI.setup_wizard import run_wizard_sync
+
+        cfg = AppConfig.load()
+        if cfg is None:
+            data = run_wizard_sync()
+            if not data:
+                raise RuntimeError("Setup wizard was cancelled.")
+            cfg = AppConfig(data)
+            cfg.save()
+
+        ensure_tree(Path(cfg.root))
+        for path in (
+            cfg.runtime_data_path,
+            cfg.faiss_path,
+            cfg.faiss_backend_path,
+            cfg.backend_ingestion_path,
+            cfg.watchdog_path,
+            cfg.metadata_path,
+            cfg.logs_path,
+        ):
+            Path(path).mkdir(parents=True, exist_ok=True)
+        reload_runtime_config()
+        import runtime_paths as runtime_paths_module
+        globals().update(
+            LOG_DIR=runtime_paths_module.LOG_DIR,
+            STARTUP_LOG=runtime_paths_module.STARTUP_LOG,
+            ERROR_LOG=runtime_paths_module.ERROR_LOG,
+        )
+    except Exception:
+        log_exception("Setup wizard failed")
+        raise
 
 
 def log(message: str, *, error: bool = False) -> None:
@@ -114,12 +151,12 @@ def run_streamlit_in_process(port: int = DEFAULT_PORT) -> None:
 
 
 def main() -> int:
-    ensure_runtime_environment()
-    os.chdir(ROOT_DIR)
-    log("=" * 72)
-    log(f"Raggers launcher starting; frozen={IS_FROZEN}; root={ROOT_DIR}")
-
     try:
+        ensure_setup_wizard_completed()
+        ensure_runtime_environment()
+        os.chdir(ROOT_DIR)
+        log("=" * 72)
+        log(f"Raggers launcher starting; frozen={IS_FROZEN}; root={ROOT_DIR}")
         validate_runtime()
 
         with single_instance_lock() as acquired:

@@ -37,6 +37,7 @@ logger.setLevel(logging.INFO)
 _started = False
 _lock = threading.Lock()
 _ingest_timer = None
+_observers = []
 
 
 def ensure_monitor_files() -> None:
@@ -165,6 +166,7 @@ class ChangeHandler(FileSystemEventHandler):
 
 
 def start_watchdog():
+    global _observers
     ensure_monitor_files()
     observers = []
     for folder in WATCH_FOLDERS:
@@ -175,6 +177,7 @@ def start_watchdog():
         observer.start()
         observers.append(observer)
         logger.info("Started monitoring: %s", path)
+    _observers = observers
 
     try:
         while True:
@@ -184,6 +187,31 @@ def start_watchdog():
             observer.stop()
         for observer in observers:
             observer.join()
+
+
+def _restart_observers_locked() -> None:
+    global _observers
+    for observer in _observers:
+        try:
+            observer.stop()
+        except Exception:
+            logger.exception("Failed to stop watchdog observer")
+    for observer in _observers:
+        try:
+            observer.join(timeout=5)
+        except Exception:
+            logger.exception("Failed to join watchdog observer")
+
+    observers = []
+    for folder in WATCH_FOLDERS:
+        path = Path(folder)
+        path.mkdir(parents=True, exist_ok=True)
+        observer = Observer()
+        observer.schedule(ChangeHandler(), str(path), recursive=True)
+        observer.start()
+        observers.append(observer)
+        logger.info("Restarted monitoring: %s", path)
+    _observers = observers
 
 
 def cron_check():
@@ -228,6 +256,21 @@ def start_monitoring_background():
     cron_thread.start()
     logger.info("Monitoring background threads started")
     return True
+
+
+def configure_watchdog_folder(folder: Path, ingest_existing: bool = True, index_path: Path = None) -> None:
+    global INDEX_PATH
+    path = Path(folder).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    if index_path is not None:
+        INDEX_PATH = str(Path(index_path).resolve())
+    with _lock:
+        WATCH_FOLDERS[:] = [str(path)]
+        if _started and _observers:
+            _restart_observers_locked()
+    logger.info("Configured watchdog folder: %s", path)
+    if ingest_existing:
+        schedule_ingestion(rebuild=True, delay=0.1)
 
 
 if __name__ == "__main__":

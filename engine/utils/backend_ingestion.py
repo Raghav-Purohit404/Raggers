@@ -6,7 +6,7 @@ import pickle
 import shutil
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -90,6 +90,41 @@ def faiss_size(index) -> int:
         return len(index.docstore._dict)
     except Exception:
         return 0
+
+
+def _doc_source_path(doc: Document) -> Optional[Path]:
+    metadata = doc.metadata or {}
+    source = metadata.get("source")
+    if not source or str(source).startswith("url:"):
+        return None
+    try:
+        return Path(source).resolve()
+    except OSError:
+        return None
+
+
+def _is_under_folder(path: Path, folder: Path) -> bool:
+    try:
+        path.relative_to(folder)
+        return True
+    except ValueError:
+        return False
+
+
+def retained_documents_outside_folder(index, folder: Path) -> List[Document]:
+    if index is None:
+        return []
+    folder = folder.resolve()
+    retained: List[Document] = []
+    try:
+        for doc in index.docstore._dict.values():
+            source_path = _doc_source_path(doc)
+            if source_path is None or not _is_under_folder(source_path, folder):
+                retained.append(doc)
+    except Exception:
+        logger.exception("Unable to retain existing non-watchdog documents")
+    logger.info("Retained non-watchdog chunks during rebuild: %s", len(retained))
+    return retained
 
 
 def get_embedder():
@@ -216,25 +251,27 @@ def deduplicate_chunks(chunks: List[Document], index=None) -> List[Document]:
     return unique
 
 
-def update_index(chunks: List[Document], index_path=INDEX_PATH, rebuild: bool = False):
+def update_index(chunks: List[Document], index_path=INDEX_PATH, rebuild: bool = False, replace_folder: Path = None):
     index_path = Path(index_path)
     logger.info("Active FAISS path: %s", index_path)
     embedder = get_embedder()
 
     existing = None
-    if index_exists(index_path) and not rebuild:
+    if index_exists(index_path):
         existing = FAISS.load_local(str(index_path), embedder, allow_dangerous_deserialization=True)
 
     logger.info("FAISS size before ingestion: %s", faiss_size(existing))
 
     if rebuild:
+        retained = retained_documents_outside_folder(existing, replace_folder) if replace_folder else []
+        rebuild_docs = retained + chunks
         if index_path.exists():
             shutil.rmtree(index_path)
         index_path.mkdir(parents=True, exist_ok=True)
-        if not chunks:
+        if not rebuild_docs:
             logger.info("No chunks available; rebuilt index directory left empty at %s", index_path)
             return None
-        index = FAISS.from_documents(chunks, embedder)
+        index = FAISS.from_documents(rebuild_docs, embedder)
     elif existing is not None:
         unique = deduplicate_chunks(chunks, existing)
         index = existing
@@ -282,7 +319,7 @@ def run_background_ingestion(
         return None
 
     chunks = chunk_documents(all_docs)
-    index = update_index(chunks, index_path=index_path, rebuild=rebuild)
+    index = update_index(chunks, index_path=index_path, rebuild=rebuild, replace_folder=pdf_dir if rebuild else None)
     save_indexed_hashes(indexed_hashes)
 
     if benchmark:

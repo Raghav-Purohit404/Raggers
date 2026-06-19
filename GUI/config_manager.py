@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 
 APP_NAME = "PhiRAG"
-DEFAULT_TREE = ["faiss_index", "faiss_backend", "metadata", "logs", "watchdog"]
+DEFAULT_TREE = ["runtime_data", "faiss_index", "metadata", "logs", "watchdog"]
 
 def appdata_config_path():
     appdata = os.getenv("APPDATA") or str(Path.home() / ".config")
@@ -30,6 +30,10 @@ class AppConfig:
         return Path(self.data.get("watchdog_path", "")).resolve()
 
     @property
+    def backend_ingestion_path(self) -> Path:
+        return Path(self.data.get("backend_ingestion_path") or self.data.get("watchdog_path", "")).resolve()
+
+    @property
     def faiss_path(self) -> Path:
         return Path(self.data.get("faiss_path", "")).resolve()
 
@@ -39,7 +43,11 @@ class AppConfig:
 
     @property
     def faiss_backend_path(self) -> Path:
-        return Path(self.data.get("faiss_backend_path", "")).resolve()
+        return Path(self.data.get("faiss_backend_path") or self.data.get("faiss_path", "")).resolve()
+
+    @property
+    def runtime_data_path(self) -> Path:
+        return Path(self.data.get("runtime_data_path") or self.data.get("root", "")).resolve()
 
     @property
     def logs_path(self) -> Path:
@@ -67,9 +75,15 @@ class AppConfig:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
         # resolve stored paths to absolute form
-        for k in ("root","watchdog_path","faiss_path","faiss_backend_path","metadata_path","logs_path"):
+        for k in ("root","watchdog_path","backend_ingestion_path","faiss_path","faiss_backend_path","metadata_path","logs_path","runtime_data_path"):
             if k in data and data[k]:
                 data[k] = str(Path(data[k]).resolve())
+        if "runtime_data_path" not in data and data.get("root"):
+            data["runtime_data_path"] = str((Path(data["root"]) / "runtime_data").resolve())
+        if "faiss_backend_path" not in data and data.get("faiss_path"):
+            data["faiss_backend_path"] = data["faiss_path"]
+        if "backend_ingestion_path" not in data and data.get("watchdog_path"):
+            data["backend_ingestion_path"] = data["watchdog_path"]
         return AppConfig(data)
 
 def ensure_tree(root: Path):
@@ -84,8 +98,10 @@ def ensure_tree(root: Path):
     return {
         "root": str(root),
         "watchdog_path": created["watchdog"],
+        "backend_ingestion_path": created["watchdog"],
         "faiss_path": created["faiss_index"],
-        "faiss_backend_path": created["faiss_backend"],
+        "faiss_backend_path": created["faiss_index"],
+        "runtime_data_path": created["runtime_data"],
         "metadata_path": created["metadata"],
         "logs_path": created["logs"]
     }

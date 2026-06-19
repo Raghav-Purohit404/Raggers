@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 
 import traceback
-from runtime_paths import RESOURCE_DIR, ROOT_DIR, ensure_runtime_environment
+from runtime_paths import RESOURCE_DIR, ROOT_DIR, ensure_runtime_environment, reload_runtime_config
 
 # ---------------------------------------------------------
 # MAKE GUI A PACKAGE-SAFE IMPORT ROOT
@@ -52,6 +52,7 @@ def load_or_run_wizard():
 
     cfg = AppConfig(data)
     cfg.save()
+    reload_runtime_config()
     return cfg
 
 
@@ -61,9 +62,10 @@ def load_or_run_wizard():
 
 def start_watchdog_thread(cfg: AppConfig):
     try:
-        from engine.utils.monitoring import start_monitoring_background
+        from engine.utils.monitoring import configure_watchdog_folder, start_monitoring_background
 
         Path(cfg.watchdog_path).mkdir(parents=True, exist_ok=True)
+        configure_watchdog_folder(Path(cfg.watchdog_path), ingest_existing=True, index_path=Path(cfg.faiss_path))
         started = start_monitoring_background()
         print("[gui/watchdog] Central monitoring started:", started)
     except Exception:
@@ -87,6 +89,7 @@ def try_launch_interface():
 
 def main():
     cfg = load_or_run_wizard()
+    reload_runtime_config()
 
 
     if not isinstance(cfg, AppConfig):

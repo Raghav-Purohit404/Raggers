@@ -6,6 +6,7 @@ from pathlib import Path
 
 APP_NAME = "Raggers"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
+CONFIG_APP_NAME = "PhiRAG"
 
 
 def app_dir() -> Path:
@@ -38,24 +39,27 @@ def default_user_data_dir() -> Path:
     return Path.home() / f".{APP_NAME.lower()}" / "data"
 
 
-DATA_DIR = default_user_data_dir() if IS_FROZEN else RESOURCE_DATA_DIR
+def config_file_path() -> Path:
+    appdata = os.getenv("APPDATA") or str(Path.home() / ".config")
+    return Path(appdata) / CONFIG_APP_NAME / "config.json"
 
 
 def get_config_paths() -> dict:
     try:
-        appdata = os.getenv("APPDATA") or str(Path.home() / ".config")
-        cfg_path = Path(appdata) / "PhiRAG" / "config.json"
+        cfg_path = config_file_path()
         if cfg_path.exists():
             import json
             with open(cfg_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             root = Path(data.get("root", "")).resolve() if data.get("root") else None
             if root:
+                runtime_data = Path(data.get("runtime_data_path", root / "runtime_data")).resolve()
                 return {
+                    "runtime_data": runtime_data,
                     "faiss_index": Path(data.get("faiss_path", root / "faiss_index")).resolve(),
-                    "faiss_backend": Path(data.get("faiss_backend_path", root / "faiss_backend")).resolve(),
+                    "faiss_backend": Path(data.get("faiss_backend_path", data.get("faiss_path", root / "faiss_index"))).resolve(),
                     "logs": Path(data.get("logs_path", root / "logs")).resolve(),
-                    "watchdog": Path(data.get("watchdog_path", root / "watchdog")).resolve(),
+                    "watchdog": Path(data.get("watchdog_path", data.get("backend_ingestion_path", root / "watchdog"))).resolve(),
                 }
     except Exception:
         pass
@@ -63,6 +67,7 @@ def get_config_paths() -> dict:
 
 
 CFG_PATHS = get_config_paths()
+DATA_DIR = CFG_PATHS.get("runtime_data") or (default_user_data_dir() if IS_FROZEN else RESOURCE_DATA_DIR)
 
 
 def is_writable_dir(path: Path) -> bool:
@@ -173,3 +178,21 @@ def display_path(path: Path) -> str:
             return str(path.relative_to(RESOURCE_DIR))
         except ValueError:
             return str(path)
+
+
+def reload_runtime_config() -> None:
+    global CFG_PATHS, DATA_DIR, LOG_DIR, STARTUP_LOG, ERROR_LOG, QUERY_LOG
+    global FAISS_INDEX_DIR, FAISS_BACKEND_DIR, BACKEND_RAG_DATA_DIR
+    global _USER_EMBEDDING_MODEL_DIR, EMBEDDING_MODEL_DIR
+
+    CFG_PATHS = get_config_paths()
+    DATA_DIR = CFG_PATHS.get("runtime_data") or (default_user_data_dir() if IS_FROZEN else RESOURCE_DATA_DIR)
+    LOG_DIR = CFG_PATHS.get("logs") or log_dir()
+    STARTUP_LOG = LOG_DIR / "startup.log"
+    ERROR_LOG = LOG_DIR / "error.log"
+    QUERY_LOG = LOG_DIR / "query_logs.csv"
+    FAISS_INDEX_DIR = CFG_PATHS.get("faiss_index") or (DATA_DIR / "combined_faiss_index")
+    FAISS_BACKEND_DIR = CFG_PATHS.get("faiss_backend") or FAISS_INDEX_DIR
+    BACKEND_RAG_DATA_DIR = CFG_PATHS.get("watchdog") or (DATA_DIR / "backend_rag_data")
+    _USER_EMBEDDING_MODEL_DIR = DATA_DIR / "models" / "all-MiniLM-L6-v2"
+    EMBEDDING_MODEL_DIR = _BUNDLED_EMBEDDING_MODEL_DIR if _BUNDLED_EMBEDDING_MODEL_DIR.exists() else _USER_EMBEDDING_MODEL_DIR
