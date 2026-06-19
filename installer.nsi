@@ -10,7 +10,7 @@
 !define EXEFILENAME "PhiRAG-GUI.exe"
 
 ; Output installer
-OutFile "Raggers-Setup-v${APPVERSION}.exe"
+OutFile "Raggers-Installer.exe"
 
 ; Default Install Directory
 InstallDir "$PROGRAMFILES\${APPNAME}"
@@ -36,12 +36,6 @@ Section "Install Raggers"
 
     ; Copy PyInstaller dist EXE output
     File /r "dist\PhiRAG-GUI\*.*"
-
-    ; Copy project structure required at runtime
-    File /r "app\*.*"
-    File /r "models\*.*"
-    File /r "logs\*.*"
-    File /r "config\*.*"
 
     ; Write registry keys for Windows uninstall menu
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayName" "${APPNAME}"

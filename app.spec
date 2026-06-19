@@ -12,19 +12,39 @@ def add_tree(name):
     path = project_root / name
     return [(str(path), name)] if path.exists() else []
 
+def safe_collect_data_files(package):
+    try:
+        return collect_data_files(package)
+    except Exception:
+        return []
+
+def safe_copy_metadata(package):
+    try:
+        return copy_metadata(package)
+    except Exception:
+        return []
+
 datas = []
 datas += add_tree("engine")
 datas += add_tree("GUI")
 datas += add_tree("data")
-datas += collect_data_files("streamlit")
-datas += collect_data_files("sentence_transformers")
-datas += collect_data_files("transformers")
-datas += collect_data_files("tzdata")
-datas += collect_data_files("huggingface_hub")
-datas += collect_data_files("tokenizers")
-datas += collect_data_files("langchain")
-datas += collect_data_files("langchain_community")
-datas += collect_data_files("langchain_core")
+for package in (
+    "streamlit",
+    "sentence_transformers",
+    "transformers",
+    "tzdata",
+    "huggingface_hub",
+    "tokenizers",
+    "langchain",
+    "langchain_community",
+    "langchain_core",
+    "langchain_text_splitters",
+    "langchain_huggingface",
+    "unstructured",
+    "watchdog",
+    "schedule",
+):
+    datas += safe_collect_data_files(package)
 
 for package in (
     "streamlit",
@@ -36,17 +56,22 @@ for package in (
     "langchain_community",
     "langchain_core",
     "langchain_huggingface",
+    "langchain_text_splitters",
     "tzdata",
     "certifi",
     "huggingface_hub",
     "tokenizers",
     "accelerate",
     "tqdm",
+    "unstructured",
+    "watchdog",
+    "schedule",
+    "pymupdf",
+    "python-docx",
+    "python-pptx",
+    "beautifulsoup4",
 ):
-    try:
-        datas += copy_metadata(package)
-    except Exception:
-        pass
+    datas += safe_copy_metadata(package)
 
 hiddenimports = []
 for package in (
@@ -67,6 +92,10 @@ for package in (
     "transformers",
     "unstructured",
     "watchdog",
+    "watchdog.observers",
+    "watchdog.events",
+    "watchdog.observers.polling",
+    "schedule",
     "PyQt6",
     "huggingface_hub",
     "accelerate",
@@ -103,6 +132,8 @@ hiddenimports += [
     "requests",
     "bs4",
     "pptx",
+    "pptx.enum",
+    "pptx.opc",
     "watchdog",
     "schedule",
     "PyQt6.QtCore",

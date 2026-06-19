@@ -44,6 +44,6 @@ if __name__ == "__main__":
 
     while True:
         print("\n⏳ Running scheduled ingestion cycle...")
-        run_background_ingestion(pdf_dir=PDF_DIR, urls=URLS, index_path=INDEX_PATH)
+        run_background_ingestion(pdf_dir=PDF_DIR, urls=URLS, index_path=INDEX_PATH, rebuild=True)
         print("✅ Cycle completed. Waiting 60 seconds before next check...\n")
         time.sleep(60)

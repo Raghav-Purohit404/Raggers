@@ -117,6 +117,7 @@ class SetupWizard(QWidget):
             "root": created["root"],
             "watchdog_path": created["watchdog_path"],
             "faiss_path": created["faiss_path"],
+            "faiss_backend_path": created["faiss_backend_path"],
             "metadata_path": created["metadata_path"],
             "logs_path": created["logs_path"],
             "ollama_model": model_choice,

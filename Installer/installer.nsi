@@ -11,14 +11,14 @@ Var ScriptDir
 ;--------------------------------
 ; APPLICATION INFO
 ;--------------------------------
-!define APPNAME "Raggers GUI"
+!define APPNAME "Raggers"
 !define APPVERSION "1.0.0"
 !define PUBLISHER "Raggers Team"
-!define INSTALLDIR "C:\Program Files\RaggersGUI"
-!define EXENAME "Raggers-GUI.exe"
-!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\RaggersGUI"
+!define INSTALLDIR "C:\Program Files\Raggers"
+!define EXENAME "PhiRAG-GUI.exe"
+!define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Raggers"
 
-OutFile "RaggersGUI-Setup.exe"
+OutFile "Raggers-Installer.exe"
 InstallDir "${INSTALLDIR}"
 RequestExecutionLevel admin
 
@@ -42,17 +42,17 @@ SetCompress off
 ;--------------------------------
 ; INSTALL SECTION
 ;--------------------------------
-Section "Install Raggers GUI"
+Section "Install Raggers"
     SetOutPath "$INSTDIR"
 
     ; 📌 Copy the built application from your actual folder structure
-    File "..\dist\Raggers-GUI\Raggers-GUI.exe"
-    File /r "..\dist\Raggers-GUI\_internal\*.*"
+    File "..\dist\PhiRAG-GUI\PhiRAG-GUI.exe"
+    File /r "..\dist\PhiRAG-GUI\_internal\*.*"
 
     ; 🔗 Shortcuts
-    CreateDirectory "$SMPROGRAMS\Raggers GUI"
-    CreateShortCut "$SMPROGRAMS\Raggers GUI\Raggers GUI.lnk" "$INSTDIR\Raggers-GUI.exe"
-    CreateShortCut "$DESKTOP\Raggers GUI.lnk" "$INSTDIR\Raggers-GUI.exe"
+    CreateDirectory "$SMPROGRAMS\Raggers"
+    CreateShortCut "$SMPROGRAMS\Raggers\Raggers.lnk" "$INSTDIR\${EXENAME}"
+    CreateShortCut "$DESKTOP\Raggers.lnk" "$INSTDIR\${EXENAME}"
 
     ; 🧹 Uninstall registration
     WriteRegStr HKLM "${UNINSTKEY}" "DisplayName" "${APPNAME}"
@@ -68,9 +68,9 @@ SectionEnd
 ; UNINSTALL SECTION
 ;--------------------------------
 Section "Uninstall"
-    Delete "$DESKTOP\Raggers GUI.lnk"
-    Delete "$SMPROGRAMS\Raggers GUI\Raggers GUI.lnk"
-    RMDir "$SMPROGRAMS\Raggers GUI"
+    Delete "$DESKTOP\Raggers.lnk"
+    Delete "$SMPROGRAMS\Raggers\Raggers.lnk"
+    RMDir "$SMPROGRAMS\Raggers"
     RMDir /r "$INSTDIR"
     DeleteRegKey HKLM "${UNINSTKEY}"
 SectionEnd

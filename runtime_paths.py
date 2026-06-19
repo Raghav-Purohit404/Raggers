@@ -28,7 +28,17 @@ ROOT_DIR = APP_DIR
 RESOURCE_DIR = resource_dir()
 ENGINE_DIR = RESOURCE_DIR / "engine"
 GUI_DIR = RESOURCE_DIR / "GUI"
-DATA_DIR = RESOURCE_DIR / "data"
+RESOURCE_DATA_DIR = RESOURCE_DIR / "data"
+
+
+def default_user_data_dir() -> Path:
+    base = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
+    if base:
+        return Path(base) / APP_NAME / "data"
+    return Path.home() / f".{APP_NAME.lower()}" / "data"
+
+
+DATA_DIR = default_user_data_dir() if IS_FROZEN else RESOURCE_DATA_DIR
 
 
 def get_config_paths() -> dict:
@@ -43,7 +53,7 @@ def get_config_paths() -> dict:
             if root:
                 return {
                     "faiss_index": Path(data.get("faiss_path", root / "faiss_index")).resolve(),
-                    "faiss_backend": (root / "faiss_backend").resolve(),
+                    "faiss_backend": Path(data.get("faiss_backend_path", root / "faiss_backend")).resolve(),
                     "logs": Path(data.get("logs_path", root / "logs")).resolve(),
                     "watchdog": Path(data.get("watchdog_path", root / "watchdog")).resolve(),
                 }
@@ -95,7 +105,9 @@ QUERY_LOG = LOG_DIR / "query_logs.csv"
 FAISS_INDEX_DIR = CFG_PATHS.get("faiss_index") or (DATA_DIR / "combined_faiss_index")
 FAISS_BACKEND_DIR = CFG_PATHS.get("faiss_backend") or (DATA_DIR / "faiss_backend")
 BACKEND_RAG_DATA_DIR = CFG_PATHS.get("watchdog") or (DATA_DIR / "backend_rag_data")
-EMBEDDING_MODEL_DIR = DATA_DIR / "models" / "all-MiniLM-L6-v2"
+_BUNDLED_EMBEDDING_MODEL_DIR = RESOURCE_DATA_DIR / "models" / "all-MiniLM-L6-v2"
+_USER_EMBEDDING_MODEL_DIR = DATA_DIR / "models" / "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_DIR = _BUNDLED_EMBEDDING_MODEL_DIR if _BUNDLED_EMBEDDING_MODEL_DIR.exists() else _USER_EMBEDDING_MODEL_DIR
 
 
 def bundled_python() -> Path:
@@ -103,7 +115,8 @@ def bundled_python() -> Path:
 
 
 def ensure_runtime_environment() -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    for path in (LOG_DIR, DATA_DIR, FAISS_INDEX_DIR, FAISS_BACKEND_DIR, BACKEND_RAG_DATA_DIR):
+        path.mkdir(parents=True, exist_ok=True)
 
     if str(RESOURCE_DIR) not in sys.path:
         sys.path.insert(0, str(RESOURCE_DIR))
@@ -140,6 +153,7 @@ def required_runtime_paths() -> list[Path]:
         ENGINE_DIR,
         GUI_DIR,
         DATA_DIR,
+        RESOURCE_DATA_DIR,
         STREAMLIT_APP,
     ]
     if IS_FROZEN:

@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 
 APP_NAME = "PhiRAG"
-DEFAULT_TREE = ["faiss_index", "metadata", "logs", "watchdog"]
+DEFAULT_TREE = ["faiss_index", "faiss_backend", "metadata", "logs", "watchdog"]
 
 def appdata_config_path():
     appdata = os.getenv("APPDATA") or str(Path.home() / ".config")
@@ -38,6 +38,10 @@ class AppConfig:
         return Path(self.data.get("metadata_path", "")).resolve()
 
     @property
+    def faiss_backend_path(self) -> Path:
+        return Path(self.data.get("faiss_backend_path", "")).resolve()
+
+    @property
     def logs_path(self) -> Path:
         return Path(self.data.get("logs_path", "")).resolve()
 
@@ -63,7 +67,7 @@ class AppConfig:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
         # resolve stored paths to absolute form
-        for k in ("root","watchdog_path","faiss_path","metadata_path","logs_path"):
+        for k in ("root","watchdog_path","faiss_path","faiss_backend_path","metadata_path","logs_path"):
             if k in data and data[k]:
                 data[k] = str(Path(data[k]).resolve())
         return AppConfig(data)
@@ -81,6 +85,7 @@ def ensure_tree(root: Path):
         "root": str(root),
         "watchdog_path": created["watchdog"],
         "faiss_path": created["faiss_index"],
+        "faiss_backend_path": created["faiss_backend"],
         "metadata_path": created["metadata"],
         "logs_path": created["logs"]
     }
